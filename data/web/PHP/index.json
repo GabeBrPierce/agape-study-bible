@@ -1,0 +1,12 @@
+{
+  "book": "PHP",
+  "bookName": "Philippians",
+  "fullTitle": "Paul’s Letter to the Philippians",
+  "abbrev": "Php",
+  "chapters": [
+    1,
+    2,
+    3,
+    4
+  ]
+}
