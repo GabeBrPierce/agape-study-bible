@@ -15,3 +15,24 @@ root.render(
 // to log results (for example: reportWebVitals(console.log))
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();
+
+// Register Service Worker for offline caching (KaiOS 3.0+)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      // New SW waiting — it will activate on next page load
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (newWorker) {
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              console.log('[SW] Update available — will activate on next launch');
+            }
+          });
+        }
+      });
+    }).catch((err) => {
+      console.warn('[SW] Registration failed:', err);
+    });
+  });
+}

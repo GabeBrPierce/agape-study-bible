@@ -1,0 +1,12 @@
+{
+  "book": "JON",
+  "bookName": "Jonah",
+  "fullTitle": "The Book of Jonah",
+  "abbrev": "Jon",
+  "chapters": [
+    1,
+    2,
+    3,
+    4
+  ]
+}

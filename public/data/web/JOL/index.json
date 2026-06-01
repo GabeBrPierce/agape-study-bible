@@ -1,0 +1,11 @@
+{
+  "book": "JOL",
+  "bookName": "Joel",
+  "fullTitle": "The Book of Joel",
+  "abbrev": "Jol",
+  "chapters": [
+    1,
+    2,
+    3
+  ]
+}

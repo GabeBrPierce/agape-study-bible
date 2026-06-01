@@ -1,0 +1,13 @@
+{
+  "book": "JAS",
+  "bookName": "James",
+  "fullTitle": "The Letter from James",
+  "abbrev": "Jas",
+  "chapters": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ]
+}
