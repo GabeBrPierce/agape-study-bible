@@ -15,7 +15,7 @@
     { "src": "/icons/icon-112.png", "type": "image/png", "sizes": "112x112" }
   ],
   "b2g_features": {
-    "version": "3.0.4",
+    "version": "3.0.5",
     "subtitle": "Read, study, and search the Bible",
     "developer": {
       "name": "Agape",
