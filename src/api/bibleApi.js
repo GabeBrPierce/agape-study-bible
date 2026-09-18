@@ -382,12 +382,11 @@ export async function fetchLexicon(strongsField) {
  * Search locally cached/bundled verses for a query string.
  * This is a simple in-memory text search over locally available chapters.
  * For a full implementation, an offline search index would be needed.
- * Returns array of { book, chapter, verse, preview } up to maxResults.
+ * Returns array of { book, chapter, verse, preview } for every match.
  */
-export async function searchLocal(query, translationId = 'web', maxResults = 50) {
+export async function searchLocal(query, translationId = 'web') {
   if (!query || query.trim().length < 2) return [];
   const q = query.trim().toLowerCase();
-  const results = [];
 
-  return searchIndex.searchLocal(q, translationId, maxResults);
+  return searchIndex.searchLocal(q, translationId);
 }

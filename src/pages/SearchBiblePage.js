@@ -23,7 +23,7 @@ export default function SearchBiblePage() {
     setState('searching');
     debounceRef.current = setTimeout(async () => {
       try {
-        const res = await searchLocal(query, translationId, 50);
+        const res = await searchLocal(query, translationId);
         setResults(res);
         setState(res.length === 0 ? 'no-results' : 'results');
         setFocusIndex(res.length > 0 ? 0 : -1);

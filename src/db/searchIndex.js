@@ -50,9 +50,9 @@ const searchIndex = {
 
   /**
    * Search all bundled verses for a substring match.
-   * Returns [{ book, chapter, verse, preview }] up to maxResults.
+   * Returns [{ book, chapter, verse, preview }] for every match.
    */
-  async searchLocal(query, translationId = 'web', maxResults = 50) {
+  async searchLocal(query, translationId = 'web') {
     const q = query.trim().toLowerCase();
     if (!q || q.length < 2) return [];
 
@@ -68,7 +68,6 @@ const searchIndex = {
             verse:   entry.v,
             preview: entry.t.length > 120 ? entry.t.slice(0, 120) + '…' : entry.t,
           });
-          if (results.length >= maxResults) break;
         }
       }
       return results;
@@ -104,7 +103,6 @@ const searchIndex = {
               verse:   v.number ?? v.verse ?? v.verseNumber,
               preview: (v.text || v.content || '').slice(0, 120),
             });
-            if (results.length >= maxResults) return results;
           }
         }
       }
