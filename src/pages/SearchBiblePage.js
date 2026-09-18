@@ -11,6 +11,8 @@ export default function SearchBiblePage() {
   const [focusIndex, setFocusIndex] = useState(-1);
 
   const debounceRef = useRef(null);
+  const listRef     = useRef(null);
+  const itemRefs    = useRef({});
   const translationId = settings.translationId || 'web';
 
   // Debounced search
@@ -32,25 +34,27 @@ export default function SearchBiblePage() {
     }, 300);
   }, [query, translationId]);
 
-  const appendChar = useCallback((ch) => {
-    setQuery(prev => prev + ch);
-    setFocusIndex(-1);
-  }, []);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  // Scroll focused result to vertical centre (guard: -1 means input is focused)
+  useEffect(() => {
+    if (focusIndex < 0) return;
+    const el = itemRefs.current[focusIndex];
+    const container = listRef.current;
+    if (!el || !container) return;
+    const targetScrollTop = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+  }, [focusIndex]);
 
   const clearQuery = useCallback(() => {
     setQuery('');
     setResults([]);
     setState('idle');
     setFocusIndex(-1);
+    inputRef.current?.focus();
   }, []);
-
-  const deleteChar = useCallback(() => {
-    if (query.length > 0) {
-      setQuery(prev => prev.slice(0, -1));
-    } else {
-      pop();
-    }
-  }, [query, pop]);
 
   const openResult = useCallback((idx) => {
     const r = results[idx];
@@ -63,17 +67,13 @@ export default function SearchBiblePage() {
       ArrowUp:   () => setFocusIndex(prev => (prev <= 0 ? results.length - 1 : prev - 1)),
       ArrowDown: () => setFocusIndex(prev => (prev >= results.length - 1 ? 0 : prev + 1)),
       Enter:     () => { if (focusIndex >= 0) openResult(focusIndex); },
-      Backspace: deleteChar,
-      ...Object.fromEntries(
-        ['0','1','2','3','4','5','6','7','8','9','*','#'].map(k => [k, () => appendChar(k)])
-      ),
     });
     registerSoftkeys({
       left:   { label: 'Back', action: pop },
       center: focusIndex >= 0 ? 'Open' : 'Search',
       right:  { label: 'Clear', action: clearQuery },
     });
-  }, [results, focusIndex, openResult, deleteChar, appendChar, clearQuery, pop,
+  }, [results, focusIndex, openResult, clearQuery, pop,
       registerKeyHandlers, registerSoftkeys]);
 
   function highlightMatch(text, q) {
@@ -97,13 +97,20 @@ export default function SearchBiblePage() {
 
       <div className="search-bar">
         <span style={{ fontSize: 12, color: 'var(--color-text-dim)', marginRight: 6 }}>🔍</span>
-        <div className="search-input-display">
-          {query || <span style={{ color: 'var(--color-text-muted)' }}>Type to search…</span>}
-          <span className="cursor-blink" />
-        </div>
+        <input
+          ref={inputRef}
+          className="search-input-display"
+          type="text"
+          value={query}
+          placeholder="Type to search…"
+          onChange={e => { setQuery(e.target.value); setFocusIndex(-1); }}
+          onKeyDown={e => {
+            if (e.key === 'Backspace' && query.length === 0) pop();
+          }}
+        />
       </div>
 
-      <div className="page-content">
+      <div className="page-content" ref={listRef}>
         {state === 'idle' && (
           <div className="empty-state">Search the Bible text<br />using your keypad</div>
         )}
@@ -118,6 +125,7 @@ export default function SearchBiblePage() {
           return (
             <div
               key={idx}
+              ref={el => itemRefs.current[idx] = el}
               className={`list-item${focusIndex === idx ? ' focused' : ''}`}
               onClick={() => { setFocusIndex(idx); openResult(idx); }}
             >
@@ -127,7 +135,7 @@ export default function SearchBiblePage() {
                 </div>
                 <div style={{
                   fontSize: 11,
-                  color: focusIndex === idx ? 'rgba(255,255,255,0.75)' : 'var(--color-text-dim)',
+                  color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)',
                   marginTop: 2,
                   overflow: 'hidden',
                   display: '-webkit-box',

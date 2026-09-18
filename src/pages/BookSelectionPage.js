@@ -74,11 +74,11 @@ export default function BookSelectionPage({ preselectedBook }) {
               className={`list-item${focusIndex === idx ? ' focused' : ''}`}
               onClick={() => { setFocusIndex(idx); push('ChapterSelectionPage', { book: book.id }); }}
             >
-              <span style={{ width: 22, fontSize: 10, color: focusIndex === idx ? 'rgba(255,255,255,0.6)' : 'var(--color-text-muted)', flexShrink: 0 }}>
+              <span style={{ width: 22, fontSize: 10, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-muted)', flexShrink: 0 }}>
                 {book.canonical}
               </span>
               <span className="list-item-primary">{book.name}</span>
-              <span style={{ fontSize: 11, color: focusIndex === idx ? 'rgba(255,255,255,0.6)' : 'var(--color-text-dim)' }}>
+              <span style={{ fontSize: 11, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
                 {book.chapters} ch
               </span>
             </div>
@@ -94,11 +94,11 @@ export default function BookSelectionPage({ preselectedBook }) {
               className={`list-item${focusIndex === idx ? ' focused' : ''}`}
               onClick={() => { setFocusIndex(idx); push('ChapterSelectionPage', { book: book.id }); }}
             >
-              <span style={{ width: 22, fontSize: 10, color: focusIndex === idx ? 'rgba(255,255,255,0.6)' : 'var(--color-text-muted)', flexShrink: 0 }}>
+              <span style={{ width: 22, fontSize: 10, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-muted)', flexShrink: 0 }}>
                 {book.canonical}
               </span>
               <span className="list-item-primary">{book.name}</span>
-              <span style={{ fontSize: 11, color: focusIndex === idx ? 'rgba(255,255,255,0.6)' : 'var(--color-text-dim)' }}>
+              <span style={{ fontSize: 11, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
                 {book.chapters} ch
               </span>
             </div>

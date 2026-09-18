@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { saveHighlighter, getHighlighters } from '../db/db';
 import { BOOK_BY_ID } from '../data/books';
@@ -11,13 +11,16 @@ export default function HighlightListPage({ highlighter: initHl }) {
   const [optionFocus, setOptionFocus] = useState(0);
   const listRef = useRef(null);
 
-  // Flatten verses for display
-  const flatVerses = [];
-  for (const entry of (hl.verses || [])) {
-    for (const v of entry.verses) {
-      flatVerses.push({ book: entry.book, chapter: entry.chapter, verse: v, entryIndex: hl.verses.indexOf(entry) });
+  // Flatten verses for display — memoized to keep effect deps stable
+  const flatVerses = useMemo(() => {
+    const result = [];
+    for (const entry of (hl.verses || [])) {
+      for (const v of entry.verses) {
+        result.push({ book: entry.book, chapter: entry.chapter, verse: v, entryIndex: hl.verses.indexOf(entry) });
+      }
     }
-  }
+    return result;
+  }, [hl.verses]);
 
   const OPTIONS = ['Remove Verse', 'Edit Highlighter', 'Cancel'];
 

@@ -46,8 +46,8 @@ export default function InternetUsagePage() {
                 width: 16,
                 height: 16,
                 borderRadius: '50%',
-                border: `2px solid ${focusIndex === idx ? '#fff' : 'var(--color-accent)'}`,
-                background: isActive ? (focusIndex === idx ? '#fff' : 'var(--color-accent)') : 'transparent',
+                border: `2px solid ${focusIndex === idx ? 'var(--color-focus-text)' : 'var(--color-accent)'}`,
+                background: isActive ? (focusIndex === idx ? 'var(--color-focus-text)' : 'var(--color-accent)') : 'transparent',
                 marginRight: 10,
                 flexShrink: 0,
                 display: 'inline-block',
@@ -57,7 +57,7 @@ export default function InternetUsagePage() {
                 <div className="list-item-secondary">{opt.desc}</div>
               </div>
               {isActive && (
-                <span style={{ fontSize: 14, color: focusIndex === idx ? '#fff' : 'var(--color-success)' }}>✓</span>
+                <span style={{ fontSize: 14, color: focusIndex === idx ? 'var(--color-focus-text)' : 'var(--color-success)' }}>✓</span>
               )}
             </div>
           );

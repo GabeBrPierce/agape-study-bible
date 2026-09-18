@@ -1,26 +1,58 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { fetchAvailableTranslations } from '../api/bibleApi';
-import { getTranslations, saveTranslation } from '../db/db';
+import { fetchAvailableTranslations, fetchChapter, getInstalledTranslations } from '../api/bibleApi';
+import { saveTranslation } from '../db/db';
+import { BOOKS } from '../data/books';
 
-const BUNDLED = [{ id: 'web', name: 'World English Bible', shortName: 'WEB', language: 'English', isInstalled: true }];
+const DOWNLOAD_CONCURRENCY = 4;
+
+/** Every canonical (book, chapter) pair — used to fully download a translation. */
+function allChapters() {
+  const list = [];
+  for (const b of BOOKS) {
+    for (let ch = 1; ch <= b.chapters; ch++) list.push({ book: b.id, chapter: ch });
+  }
+  return list;
+}
+
+/**
+ * Download every chapter of a translation so it's readable fully offline.
+ * fetchChapter() already caches each chapter into IndexedDB as it's fetched
+ * (see bibleApi.js / db.js), and evictOldCache() skips chapters belonging to
+ * an isInstalled translation — so once this finishes (and the translation is
+ * marked installed) the whole thing stays available offline indefinitely.
+ */
+async function downloadTranslation(translationId, onProgress) {
+  const queue = allChapters();
+  const total = queue.length;
+  let done = 0;
+  async function worker() {
+    while (queue.length > 0) {
+      const { book, chapter } = queue.shift();
+      try { await fetchChapter(translationId, book, chapter); } catch (_) { /* keep going */ }
+      done++;
+      onProgress(done, total);
+    }
+  }
+  await Promise.all(Array.from({ length: DOWNLOAD_CONCURRENCY }, worker));
+}
 
 export default function VersionSelectionPage() {
   const { pop, registerKeyHandlers, registerSoftkeys, settings, updateSettings } = useApp();
-  const [installed, setInstalled]     = useState(BUNDLED);
+  const [installed, setInstalled]     = useState([]);
   const [remote, setRemote]           = useState([]);
   const [loading, setLoading]         = useState(false);
   const [downloading, setDownloading] = useState(null); // id being downloaded
+  const [progress, setProgress]       = useState({ done: 0, total: 0 });
   const [focusIndex, setFocusIndex]   = useState(0);
   const listRef = useRef(null);
 
-  // Load installed translations from DB
-  useEffect(() => {
-    getTranslations().then(dbTrans => {
-      const extra = dbTrans.filter(t => t.isInstalled && t.id !== 'web');
-      setInstalled([...BUNDLED, ...extra]);
-    });
+  const reloadInstalled = useCallback(() => {
+    getInstalledTranslations().then(setInstalled);
   }, []);
+
+  // Load installed translations (bundled + fully-downloaded) from DB
+  useEffect(() => { reloadInstalled(); }, [reloadInstalled]);
 
   // Fetch remote list
   const refreshRemote = useCallback(async () => {
@@ -44,28 +76,32 @@ export default function VersionSelectionPage() {
   ];
 
   const handleSelect = useCallback(async () => {
+    if (downloading) return; // one download at a time
     const item = allItems[focusIndex];
     if (!item) return;
     if (item.isInstalled) {
       await updateSettings({ translationId: item.id });
       pop();
     } else {
-      // Download translation (placeholder — fetch all chapters would be huge)
+      // Download every chapter of the translation so it's readable offline,
+      // then mark it installed so it stays cached (see downloadTranslation above).
       setDownloading(item.id);
+      setProgress({ done: 0, total: 0 });
       try {
         const newTrans = { ...item, isInstalled: true, installedAt: new Date().toISOString() };
-        await saveTranslation(newTrans);
-        setInstalled(prev => [...prev, newTrans]);
+        await saveTranslation(newTrans); // mark installed first so caching never evicts mid-download
+        await downloadTranslation(item.id, (done, total) => setProgress({ done, total }));
+        reloadInstalled();
         setRemote(prev => prev.filter(t => t.id !== item.id));
         await updateSettings({ translationId: item.id });
+        pop();
       } catch (err) {
         console.error('Download failed:', err);
       } finally {
         setDownloading(null);
       }
-      pop();
     }
-  }, [allItems, focusIndex, updateSettings, pop]);
+  }, [allItems, focusIndex, updateSettings, pop, reloadInstalled, downloading]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -98,7 +134,7 @@ export default function VersionSelectionPage() {
             onClick={() => { setFocusIndex(idx); handleSelect(); }}
           >
             <span className="list-item-primary">{t.shortName || t.id.toUpperCase()}</span>
-            <span style={{ fontSize: 11, color: focusIndex === idx ? 'rgba(255,255,255,0.7)' : 'var(--color-text-dim)' }}>
+            <span style={{ fontSize: 11, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
               {t.name}
               {settings.translationId === t.id && ' ✓'}
             </span>
@@ -121,8 +157,12 @@ export default function VersionSelectionPage() {
                   onClick={() => { setFocusIndex(idx); handleSelect(); }}
                 >
                   <span className="list-item-primary">{t.shortName || t.id.toUpperCase()}</span>
-                  <span style={{ fontSize: 11, color: focusIndex === idx ? 'rgba(255,255,255,0.7)' : 'var(--color-text-dim)' }}>
-                    {downloading === t.id ? 'Downloading…' : (t.language || '')}
+                  <span style={{ fontSize: 11, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
+                    {downloading === t.id
+                      ? (progress.total > 0
+                          ? `Downloading… ${Math.round((progress.done / progress.total) * 100)}%`
+                          : 'Downloading…')
+                      : (t.language || '')}
                   </span>
                 </div>
               );

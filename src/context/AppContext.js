@@ -24,6 +24,19 @@ export function AppProvider({ children }) {
     setNavStack(prev => [...prev.slice(0, -1), { page, props }]);
   }, []);
 
+  const popToRoot = useCallback(() => {
+    setNavStack(prev => [prev[0]]);
+    setBookmarkSessionActive(false);
+  }, []);
+
+  // ── Bookmark session ────────────────────────────────────────────────────────
+  // True only when the user explicitly activated a bookmark (case A: selected from
+  // main-menu bookmark list; case B: saved via reader inspect menu). Cleared when
+  // returning to the main menu. Ensures Continue Reading / Address Selection /
+  // cross-references never hijack the ribbon.
+  const [bookmarkSessionActive, setBookmarkSessionActive] = useState(false);
+  const activateBookmarkSession = useCallback(() => setBookmarkSessionActive(true), []);
+
   const currentPage = navStack[navStack.length - 1];
 
   // ── Softkeys ─────────────────────────────────────────────────────────────────
@@ -81,16 +94,25 @@ export function AppProvider({ children }) {
   // ── Global keydown ────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
-      if (e.key === 'Backspace') e.preventDefault();
+      const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+
+      // On KaiOS, Backspace triggers browser back-navigation — prevent that,
+      // but leave it alone inside real input/textarea elements so they can delete characters.
+      if (e.key === 'Backspace' && !isInput) e.preventDefault();
 
       switch (e.key) {
         case 'SoftLeft':
+        case 'F1':           // browser shortcut for left softkey (Back)
+          e.preventDefault();
           softkeyCallbacks.current.left?.();
           break;
         case 'SoftRight':
+        case 'F2':           // browser shortcut for right softkey
+          e.preventDefault();
           softkeyCallbacks.current.right?.();
           break;
         case 'Enter':
+          e.preventDefault();
           // If a specific Enter handler is registered, call it; otherwise call center softkey
           if (keyHandlers.current['Enter']) {
             keyHandlers.current['Enter'](e);
@@ -99,8 +121,25 @@ export function AppProvider({ children }) {
           }
           break;
         default: {
+          if (isInput) {
+            // Inside a real input, only intercept arrow keys for list navigation;
+            // everything else (typing, backspace) is handled natively by the browser.
+            if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && keyHandlers.current[e.key]) {
+              e.preventDefault();
+              keyHandlers.current[e.key](e);
+            }
+            break;
+          }
           const fn = keyHandlers.current[e.key];
-          if (fn) fn(e);
+          if (fn) {
+            // Prevent the browser's default action (e.g. arrow keys scrolling the page)
+            // whenever the app has its own handler for the key.
+            e.preventDefault();
+            fn(e);
+          } else if (e.key.length === 1 && keyHandlers.current['_default']) {
+            // Printable character with no specific handler → call the default handler
+            keyHandlers.current['_default'](e);
+          }
           break;
         }
       }
@@ -116,6 +155,9 @@ export function AppProvider({ children }) {
     push,
     pop,
     replace,
+    popToRoot,
+    bookmarkSessionActive,
+    activateBookmarkSession,
     softkeys,
     registerSoftkeys,
     setSoftkeys,

@@ -3,8 +3,8 @@
   "name": "Agape Study Bible",
   "short_name": "StudyBible",
   "id": "agape-study-bible",
-  "description": "A full-featured KaiOS Study Bible with reading, search, bookmarks, highlights, and favorites.",
-  "categories": ["books-reference"],
+  "description": "Full-featured Bible study app with search, bookmarks, highlights, cross-references, and interlinear.",
+  "categories": ["books"],
   "start_url": "/index.html",
   "display": "fullscreen",
   "orientation": "portrait-primary",
@@ -15,11 +15,11 @@
     { "src": "/icons/icon-112.png", "type": "image/png", "sizes": "112x112" }
   ],
   "b2g_features": {
-    "version": "3.0.0",
+    "version": "3.0.4",
     "subtitle": "Read, study, and search the Bible",
     "developer": {
       "name": "Agape",
-      "url": ""
+      "url": "https://github.com"
     },
     "focus_color": "#0061e0",
     "cursor": false,

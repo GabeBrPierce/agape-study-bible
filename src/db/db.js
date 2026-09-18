@@ -2,7 +2,7 @@
 // Stores: settings, bookmarks, highlights, favorites, chapterCache, translations
 
 const DB_NAME = 'agape-study-bible';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let _db = null;
 
@@ -47,6 +47,11 @@ function openDB() {
       // translations
       if (!db.objectStoreNames.contains('translations')) {
         db.createObjectStore('translations', { keyPath: 'id' });
+      }
+
+      // readingProgress — one record per reading plan, keyed by planId
+      if (!db.objectStoreNames.contains('readingProgress')) {
+        db.createObjectStore('readingProgress', { keyPath: 'planId' });
       }
     };
 
@@ -192,6 +197,25 @@ export async function getHighlightMapForChapter(book, chapter) {
   return map;
 }
 
+/**
+ * Remove specific verse numbers from all highlighters for a given book+chapter.
+ * Used by the "Remove Highlight" inspect action in ChapterReaderPage.
+ */
+export async function removeHighlightForVerses(book, chapter, verseNumbers) {
+  const verseSet = new Set(verseNumbers);
+  const all = await getAll('highlights');
+  for (const h of all) {
+    const hasChapter = (h.verses || []).some(e => e.book === book && e.chapter === chapter);
+    if (!hasChapter) continue;
+    const updatedEntries = (h.verses || []).map(entry => {
+      if (entry.book !== book || entry.chapter !== chapter) return entry;
+      const kept = entry.verses.filter(v => !verseSet.has(v));
+      return kept.length > 0 ? { ...entry, verses: kept } : null;
+    }).filter(Boolean);
+    await saveHighlighter({ ...h, verses: updatedEntries });
+  }
+}
+
 export async function getRecentHighlighters(n = 3) {
   const all = await getAll('highlights');
   return all.sort((a, b) => b.usedAt.localeCompare(a.usedAt)).slice(0, n);
@@ -248,11 +272,20 @@ export async function cacheChapter(translationId, book, chapter, data) {
   });
 }
 
-/** Evict cache entries older than 7 days */
+/**
+ * Evict cache entries older than 7 days — except chapters belonging to a
+ * translation the user has fully downloaded (isInstalled), which are meant
+ * to stay available offline indefinitely.
+ */
 export async function evictOldCache() {
   const all = await getAll('chapterCache');
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  let installedIds = new Set();
+  try {
+    installedIds = new Set((await getAll('translations')).filter(t => t.isInstalled).map(t => t.id));
+  } catch (_) {}
   for (const entry of all) {
+    if (installedIds.has(entry.translationId)) continue;
     if (entry.fetchedAt < cutoff) await del('chapterCache', entry.key);
   }
 }
@@ -270,6 +303,25 @@ export async function saveTranslation(translation) {
 
 export async function deleteTranslation(id) {
   return del('translations', id);
+}
+
+// ─── Reading Plan Progress ─────────────────────────────────────────────────────
+
+export async function getReadingProgress(planId) {
+  return getOne('readingProgress', planId);
+}
+
+export async function getAllReadingProgress() {
+  return getAll('readingProgress');
+}
+
+export async function saveReadingProgress(record) {
+  await put('readingProgress', record);
+  return record;
+}
+
+export async function deleteReadingProgress(planId) {
+  return del('readingProgress', planId);
 }
 
 // ─── Initialise on first run ──────────────────────────────────────────────────

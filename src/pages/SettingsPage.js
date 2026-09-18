@@ -88,7 +88,7 @@ export default function SettingsPage() {
             <span className="list-item-primary">{item.label}</span>
             <span style={{
               fontSize: 11,
-              color: focusIndex === idx ? 'rgba(255,255,255,0.7)' : 'var(--color-text-dim)',
+              color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)',
               marginLeft: 8,
             }}>
               {getItemValue(item)}

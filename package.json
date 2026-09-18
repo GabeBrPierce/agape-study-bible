@@ -14,7 +14,11 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "node scripts/build-cross-refs.js && node scripts/build-search-index.js && react-scripts build",
+    "build:index": "node scripts/build-search-index.js",
+    "build:cr": "node scripts/build-cross-refs.js",
+    "bundle:translation": "node scripts/bundle-translation.js",
+    "package": "node scripts/package-kaios.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

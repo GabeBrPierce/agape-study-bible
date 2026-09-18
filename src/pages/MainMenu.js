@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { getRecentBookmarks, getRecentHighlighters, getSettings } from '../db/db';
 import { BOOK_BY_ID } from '../data/books';
 
 const MENU_ITEMS = [
-  { id: 'continue',  label: 'Continue Reading',  requiresLocation: true  },
+  { id: 'continue',     label: 'Continue Reading',  requiresLocation: true  },
+  { id: 'dailyReading', label: 'Daily Reading',      requiresLocation: false },
   { id: 'address',   label: 'Address Selection',  requiresLocation: false },
   { id: 'search',    label: 'Search Bible',        requiresLocation: false },
   { id: 'bookmarks', label: 'Bookmarks',           requiresLocation: false },
@@ -14,27 +15,34 @@ const MENU_ITEMS = [
 ];
 
 export default function MainMenu() {
-  const { push, registerKeyHandlers, registerSoftkeys, settings } = useApp();
+  const { push, registerKeyHandlers, registerSoftkeys, settings, activateBookmarkSession } = useApp();
   const [focusIndex, setFocusIndex] = useState(0);
   const [recentBookmarks, setRecentBookmarks]   = useState([]);
   const [recentHighlights, setRecentHighlights] = useState([]);
-  const [showExit, setShowExit] = useState(false);
   const savedLocation = settings.savedLocation;
+  const activeReadingPlanId = settings.activeReadingPlanId;
 
-  // Build the flat list of focusable items (including sub-items for bookmarks/highlights)
-  const items = buildItemList(MENU_ITEMS, recentBookmarks, recentHighlights, savedLocation);
+  // Build the flat list of focusable items (memoized so stable callbacks don't loop)
+  const items = useMemo(
+    () => buildItemList(MENU_ITEMS, recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId),
+    [recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId]
+  );
 
   useEffect(() => {
     getRecentBookmarks(3).then(setRecentBookmarks).catch(() => {});
     getRecentHighlighters(3).then(setRecentHighlights).catch(() => {});
   }, []);
 
-  // Keep scroll into view
+  // Keep focused item centred in the scroll container
   const listRef = useRef(null);
   useEffect(() => {
-    if (!listRef.current) return;
-    const el = listRef.current.querySelector('.list-item.focused');
-    if (el) el.scrollIntoView({ block: 'nearest' });
+    const container = listRef.current;
+    if (!container) return;
+    const el = container.querySelector('.list-item.focused');
+    if (!el) return;
+    const targetScrollTop =
+      el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
   }, [focusIndex]);
 
   const getSelectableCount = useCallback(() => items.filter(i => !i.disabled).length, [items]);
@@ -56,32 +64,23 @@ export default function MainMenu() {
   const handleSelect = useCallback(() => {
     const item = items[focusIndex];
     if (!item || item.disabled) return;
-    activateItem(item, push, savedLocation);
-  }, [focusIndex, items, push, savedLocation]);
+    activateItem(item, push, savedLocation, activateBookmarkSession, activeReadingPlanId);
+  }, [focusIndex, items, push, savedLocation, activateBookmarkSession, activeReadingPlanId]);
 
-  // Exit confirmation
+  // Backspace at the root menu exits the app directly (no confirmation modal).
   const handleBackspace = useCallback(() => {
-    setShowExit(true);
+    if (window.close) window.close();
   }, []);
 
   useEffect(() => {
-    if (showExit) {
-      registerKeyHandlers({
-        Enter:    () => { if (window.close) window.close(); },
-        Backspace:() => setShowExit(false),
-        SoftLeft: () => setShowExit(false),
-      });
-      registerSoftkeys({ left: { label: 'Cancel', action: () => setShowExit(false) }, center: 'Exit', right: '' });
-    } else {
-      registerKeyHandlers({
-        ArrowUp:   () => moveFocus(-1),
-        ArrowDown: () => moveFocus(1),
-        Enter:     handleSelect,
-        Backspace: handleBackspace,
-      });
-      registerSoftkeys({ left: '', center: 'Select', right: '' });
-    }
-  }, [showExit, moveFocus, handleSelect, handleBackspace, registerKeyHandlers, registerSoftkeys]);
+    registerKeyHandlers({
+      ArrowUp:   () => moveFocus(-1),
+      ArrowDown: () => moveFocus(1),
+      Enter:     handleSelect,
+      Backspace: handleBackspace,
+    });
+    registerSoftkeys({ left: '', center: 'Select', right: '' });
+  }, [moveFocus, handleSelect, handleBackspace, registerKeyHandlers, registerSoftkeys]);
 
   return (
     <div className="page">
@@ -95,23 +94,10 @@ export default function MainMenu() {
             key={`${item.id}-${idx}`}
             item={item}
             focused={idx === focusIndex}
-            onClick={() => { setFocusIndex(idx); activateItem(item, push, savedLocation); }}
+            onClick={() => { setFocusIndex(idx); activateItem(item, push, savedLocation, activateBookmarkSession, activeReadingPlanId); }}
           />
         ))}
       </div>
-
-      {showExit && (
-        <>
-          <div className="modal-overlay" />
-          <div className="confirm-dialog">
-            <p>Exit app?</p>
-            <div className="btn-row">
-              <button className="btn btn-secondary" onClick={() => setShowExit(false)}>Cancel</button>
-              <button className="btn btn-primary"   onClick={() => window.close?.()}>Exit</button>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -140,7 +126,7 @@ function MenuRow({ item, focused, onClick }) {
       )}
       <span className="list-item-primary">{item.label}</span>
       {item.sub && (
-        <span style={{ fontSize: 11, color: focused ? 'rgba(255,255,255,0.7)' : 'var(--color-text-dim)' }}>
+        <span style={{ fontSize: 11, color: focused ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
           {item.sub}
         </span>
       )}
@@ -148,17 +134,20 @@ function MenuRow({ item, focused, onClick }) {
   );
 }
 
-function buildItemList(menuItems, bookmarks, highlights, savedLocation) {
+function buildItemList(menuItems, bookmarks, highlights, savedLocation, activeReadingPlanId) {
   const list = [];
   for (const m of menuItems) {
     if (m.id === 'continue') {
-      const disabled = !savedLocation;
-      let sub = '';
+      let sub = 'John 3:16';
       if (savedLocation) {
         const book = BOOK_BY_ID[savedLocation.book];
         sub = `${book ? book.name : savedLocation.book} ${savedLocation.chapter}:${savedLocation.verse}`;
       }
-      list.push({ ...m, disabled, sub, action: 'continue' });
+      list.push({ ...m, disabled: false, sub, action: 'continue' });
+
+    } else if (m.id === 'dailyReading') {
+      const sub = activeReadingPlanId ? "Today's reading" : 'Choose a plan';
+      list.push({ ...m, disabled: false, sub, action: 'dailyReading' });
 
     } else if (m.id === 'bookmarks') {
       list.push({ ...m, action: 'bookmarks' });
@@ -209,15 +198,22 @@ function buildItemList(menuItems, bookmarks, highlights, savedLocation) {
   return list;
 }
 
-function activateItem(item, push, savedLocation) {
+function activateItem(item, push, savedLocation, activateBookmarkSession, activeReadingPlanId) {
   switch (item.action) {
-    case 'continue':
-      if (savedLocation) {
-        push('ChapterReaderPage', {
-          book: savedLocation.book,
-          chapter: savedLocation.chapter,
-          initialVerse: savedLocation.verse,
-        });
+    case 'continue': {
+      const loc = savedLocation || { book: 'JHN', chapter: 3, verse: 16 };
+      push('ChapterReaderPage', {
+        book: loc.book,
+        chapter: loc.chapter,
+        initialVerse: loc.verse,
+      });
+      break;
+    }
+    case 'dailyReading':
+      if (activeReadingPlanId) {
+        push('DailyReadingPage', { planId: activeReadingPlanId });
+      } else {
+        push('ReadingPlanSelectionPage');
       }
       break;
     case 'address':
@@ -231,6 +227,7 @@ function activateItem(item, push, savedLocation) {
       push('BookmarkSelectionPage', { entryPoint: 'mainMenu' });
       break;
     case 'open-bookmark':
+      activateBookmarkSession();
       push('ChapterReaderPage', {
         book:    item.bookmark.book,
         chapter: item.bookmark.chapter,

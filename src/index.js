@@ -16,8 +16,10 @@ root.render(
 // or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
 reportWebVitals();
 
-// Register Service Worker for offline caching (KaiOS 3.0+)
-if ('serviceWorker' in navigator) {
+// Register Service Worker for offline caching (KaiOS 3.0+).
+// Production only — running a SW against the webpack dev server causes stale
+// caching and saturates the renderer during development.
+if (process.env.NODE_ENV === 'production' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((registration) => {
       // New SW waiting — it will activate on next page load

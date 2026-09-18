@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { saveBookmark } from '../db/db';
 import { BOOKMARK_COLORS } from '../data/books';
@@ -14,37 +14,40 @@ function autoAbbr(title) {
 export default function BookmarkCreationPage({ existing, onSave }) {
   const { pop, registerKeyHandlers, registerSoftkeys } = useApp();
 
-  const [fields] = useState(['title', 'abbr', 'color', 'description']);
+  const fields = ['title', 'abbr', 'color', 'description'];
   const [focusField, setFocusField] = useState(0);
   const [title, setTitle]           = useState(existing?.title || '');
   const [abbr, setAbbr]             = useState(existing?.abbr || '');
   const [color, setColor]           = useState(existing?.color || BOOKMARK_COLORS[0]);
   const [description, setDescription] = useState(existing?.description || '');
 
+  const titleRef = useRef(null);
+  const abbrRef  = useRef(null);
+  const descRef  = useRef(null);
+  const fieldRefs = useRef({});
+
   const colorIndex = BOOKMARK_COLORS.indexOf(color);
   const isValid    = title.length > 0 && abbr.length >= 1 && abbr.length <= 3;
 
-  const typeChar = useCallback((ch) => {
-    if (focusField === 0) setTitle(prev => prev.slice(0, 40 - 1) + ch);
-    if (focusField === 1) setAbbr(prev => prev.slice(0, 2) + ch);
-    if (focusField === 3) setDescription(prev => prev.slice(0, 119) + ch);
+  // Auto-focus first field on mount
+  useEffect(() => { titleRef.current?.focus(); }, []);
+
+  // Keep the focused field scrolled into view above the softkey bar.
+  useEffect(() => {
+    fieldRefs.current[focusField]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [focusField]);
 
-  const deleteLast = useCallback(() => {
-    if (focusField === 0) {
-      if (title.length > 0) { setTitle(prev => prev.slice(0, -1)); }
-      else if (focusField > 0) setFocusField(prev => prev - 1);
-      else pop();
-    }
-    if (focusField === 1) { if (abbr.length > 0) setAbbr(prev => prev.slice(0, -1)); else setFocusField(0); }
-    if (focusField === 3) { if (description.length > 0) setDescription(prev => prev.slice(0, -1)); else setFocusField(2); }
-  }, [focusField, title, abbr, description, pop]);
-
-  // Auto-fill abbr from title on first change
+  // Focus the right input when focusField changes
   useEffect(() => {
-    if (!existing && focusField === 0) {
-      setAbbr(autoAbbr(title));
-    }
+    if (focusField === 0) titleRef.current?.focus();
+    else if (focusField === 1) abbrRef.current?.focus();
+    else if (focusField === 2) document.activeElement?.blur(); // release input so ◀/▶ reach the global handler
+    else if (focusField === 3) descRef.current?.focus();
+  }, [focusField]);
+
+  // Auto-fill abbr from title while on title field
+  useEffect(() => {
+    if (!existing && focusField === 0) setAbbr(autoAbbr(title));
   }, [title, existing, focusField]);
 
   const handleSave = useCallback(async () => {
@@ -56,9 +59,9 @@ export default function BookmarkCreationPage({ existing, onSave }) {
       abbr:        abbr.trim().toUpperCase(),
       color,
       description: description.trim(),
-      book:        existing?.book  || '',
+      book:        existing?.book    || '',
       chapter:     existing?.chapter || 0,
-      verse:       existing?.verse  || 0,
+      verse:       existing?.verse   || 0,
       createdAt:   existing?.createdAt || now,
       usedAt:      now,
     };
@@ -75,26 +78,20 @@ export default function BookmarkCreationPage({ existing, onSave }) {
         if (focusField < fields.length - 1) setFocusField(prev => prev + 1);
         else handleSave();
       },
-      Backspace: deleteLast,
-      SoftLeft:  () => pop(),
-      SoftRight: isValid ? handleSave : undefined,
     };
     if (focusField === 2) {
-      // Color field: left/right cycles colors
       handlers.ArrowLeft  = () => setColor(BOOKMARK_COLORS[Math.max(0, colorIndex - 1)]);
       handlers.ArrowRight = () => setColor(BOOKMARK_COLORS[Math.min(BOOKMARK_COLORS.length - 1, colorIndex + 1)]);
-    } else {
-      handlers['*'] = () => typeChar('*');
-      handlers['#'] = () => typeChar('#');
-      [...'0123456789'].forEach(d => { handlers[d] = () => typeChar(d); });
     }
     registerKeyHandlers(handlers);
     registerSoftkeys({
       left:   { label: 'Cancel', action: pop },
       center: focusField < fields.length - 1 ? 'Next' : 'Save',
-      right:  isValid ? { label: 'Save', action: handleSave } : '',
+      // Only offer the right Save on earlier fields; on the last field the center
+      // key already says Save, so showing it twice is redundant.
+      right:  isValid && focusField < fields.length - 1 ? { label: 'Save', action: handleSave } : '',
     });
-  }, [focusField, fields, colorIndex, isValid, handleSave, deleteLast, typeChar, pop,
+  }, [focusField, fields.length, colorIndex, isValid, handleSave, pop,
       registerKeyHandlers, registerSoftkeys]);
 
   return (
@@ -105,25 +102,47 @@ export default function BookmarkCreationPage({ existing, onSave }) {
       <div className="page-content">
 
         {/* Title */}
-        <div className={`field-row${focusField === 0 ? ' focused' : ''}`}>
+        <div className={`field-row${focusField === 0 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[0] = el}
+          onClick={() => setFocusField(0)}>
           <div className="field-label">Title *</div>
-          <div className="field-value">
-            {title || <span style={{ color: 'var(--color-text-muted)' }}>e.g. Wednesday Bible Study</span>}
-            {focusField === 0 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={titleRef}
+            className="field-input"
+            type="text"
+            value={title}
+            placeholder="e.g. Wednesday Bible Study"
+            maxLength={40}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && title.length === 0) pop();
+            }}
+          />
         </div>
 
-        {/* Abbr */}
-        <div className={`field-row${focusField === 1 ? ' focused' : ''}`}>
+        {/* Abbreviation */}
+        <div className={`field-row${focusField === 1 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[1] = el}
+          onClick={() => setFocusField(1)}>
           <div className="field-label">Abbreviation (1–3 chars)</div>
-          <div className="field-value">
-            {abbr || <span style={{ color: 'var(--color-text-muted)' }}>–</span>}
-            {focusField === 1 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={abbrRef}
+            className="field-input"
+            type="text"
+            value={abbr}
+            placeholder="–"
+            maxLength={3}
+            onChange={e => setAbbr(e.target.value.toUpperCase().slice(0, 3))}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && abbr.length === 0) setFocusField(0);
+            }}
+          />
         </div>
 
         {/* Color */}
-        <div className={`field-row${focusField === 2 ? ' focused' : ''}`}>
+        <div className={`field-row${focusField === 2 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[2] = el}
+          onClick={() => setFocusField(2)}>
           <div className="field-label">Color {focusField === 2 ? '(◀ / ▶ to change)' : ''}</div>
           <div className="color-palette">
             {BOOKMARK_COLORS.map((c) => (
@@ -131,19 +150,29 @@ export default function BookmarkCreationPage({ existing, onSave }) {
                 key={c}
                 className={`color-dot${color === c ? ' selected' : ''}`}
                 style={{ background: c }}
-                onClick={() => setColor(c)}
+                onClick={ev => { ev.stopPropagation(); setColor(c); }}
               />
             ))}
           </div>
         </div>
 
         {/* Description */}
-        <div className={`field-row${focusField === 3 ? ' focused' : ''}`}>
+        <div className={`field-row${focusField === 3 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[3] = el}
+          onClick={() => setFocusField(3)}>
           <div className="field-label">Description (optional)</div>
-          <div className="field-value" style={{ minHeight: 36, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {description || <span style={{ color: 'var(--color-text-muted)' }}>–</span>}
-            {focusField === 3 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={descRef}
+            className="field-input"
+            type="text"
+            value={description}
+            placeholder="–"
+            maxLength={120}
+            onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && description.length === 0) setFocusField(2);
+            }}
+          />
         </div>
 
         {!isValid && title.length > 0 && (

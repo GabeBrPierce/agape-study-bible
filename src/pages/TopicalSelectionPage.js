@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { TOPICAL_TREE } from '../data/books';
 
@@ -7,10 +7,20 @@ export default function TopicalSelectionPage() {
   const { push, pop, registerKeyHandlers, registerSoftkeys } = useApp();
 
   // navPath: array of indices describing current layer
-  const [path, setPath] = useState([]); // [] = root, [tIdx] = testament, [tIdx, cIdx] = category (books)
+  const [path, setPath] = useState([]);
   const [focusIndex, setFocusIndex] = useState(0);
+  const listRef  = useRef(null);
+  const itemRefs = useRef({});
 
   const currentItems = getCurrentItems(path);
+
+  useEffect(() => {
+    const el = itemRefs.current[focusIndex];
+    const container = listRef.current;
+    if (!el || !container) return;
+    const targetScrollTop = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+  }, [focusIndex]);
 
   const goDeeper = useCallback((idx) => {
     const item = currentItems[idx];
@@ -55,16 +65,17 @@ export default function TopicalSelectionPage() {
       <div className="page-header">
         <span className="header-title">{title}</span>
       </div>
-      <div className="page-content">
+      <div className="page-content" ref={listRef}>
         {currentItems.map((item, idx) => (
           <div
             key={idx}
+            ref={el => itemRefs.current[idx] = el}
             className={`list-item${focusIndex === idx ? ' focused' : ''}`}
             onClick={() => { setFocusIndex(idx); goDeeper(idx); }}
           >
             <span className="list-item-primary">{item.label || item.name}</span>
             {item.type !== 'book' && (
-              <span style={{ fontSize: 11, color: focusIndex === idx ? 'rgba(255,255,255,0.6)' : 'var(--color-text-dim)' }}>›</span>
+              <span style={{ fontSize: 11, color: focusIndex === idx ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>›</span>
             )}
           </div>
         ))}

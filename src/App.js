@@ -21,6 +21,10 @@ import FavoriteSelectionPage from './pages/FavoriteSelectionPage';
 import SettingsPage       from './pages/SettingsPage';
 import VersionSelectionPage from './pages/VersionSelectionPage';
 import InternetUsagePage  from './pages/InternetUsagePage';
+import InterlinearPage    from './pages/InterlinearPage';
+import ReadingPlanSelectionPage from './pages/ReadingPlanSelectionPage';
+import DailyReadingPage   from './pages/DailyReadingPage';
+import CompareTranslationsPage from './pages/CompareTranslationsPage';
 
 const PAGE_MAP = {
   MainMenu,
@@ -39,6 +43,10 @@ const PAGE_MAP = {
   SettingsPage,
   VersionSelectionPage,
   InternetUsagePage,
+  InterlinearPage,
+  ReadingPlanSelectionPage,
+  DailyReadingPage,
+  CompareTranslationsPage,
 };
 
 function AppInner() {

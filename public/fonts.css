@@ -1,0 +1,13 @@
+/* Static font declaration — served as-is from public/ (not processed by
+   webpack). Linked from index.html. Keeps the public-folder font URL out of
+   css-loader, which can't resolve it.
+
+   Cardo: open-licensed (OFL) font covering polytonic Greek, Hebrew, and
+   Latin-extended diacritics used in the interlinear/lexicon. */
+@font-face {
+  font-family: 'Cardo';
+  src: url('fonts/Cardo-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}

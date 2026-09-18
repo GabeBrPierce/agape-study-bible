@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { saveHighlighter } from '../db/db';
 import { HIGHLIGHT_COLORS } from '../data/books';
@@ -10,7 +10,7 @@ function autoAbbr(name) {
   return name.split(/\s+/).map(w => w[0] || '').join('').toUpperCase().slice(0, 3);
 }
 
-export default function HighlightCreationPage({ existing, versesToHighlight, onSave, onDone }) {
+export default function HighlightCreationPage({ existing, versesToHighlight, onSave, onDone, autoClose }) {
   const { pop, registerKeyHandlers, registerSoftkeys } = useApp();
 
   const fields = ['name', 'abbr', 'color', 'notes'];
@@ -20,30 +20,40 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
   const [color, setColor] = useState(existing?.color || HIGHLIGHT_COLORS[0]);
   const [notes, setNotes] = useState(existing?.notes || '');
 
+  const nameRef  = useRef(null);
+  const abbrRef  = useRef(null);
+  const notesRef = useRef(null);
+  const fieldRefs = useRef({});
+
   const colorIndex = HIGHLIGHT_COLORS.indexOf(color);
   const isValid    = name.length > 0;
 
+  // Auto-focus first field on mount
+  useEffect(() => { nameRef.current?.focus(); }, []);
+
+  // Keep the focused field (and anything just below it, like the verse count)
+  // scrolled into view above the softkey bar.
+  useEffect(() => {
+    fieldRefs.current[focusField]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [focusField]);
+
+  // Focus the right input when focusField changes
+  useEffect(() => {
+    if (focusField === 0) nameRef.current?.focus();
+    else if (focusField === 1) abbrRef.current?.focus();
+    else if (focusField === 2) document.activeElement?.blur(); // release input so ◀/▶ reach the global handler
+    else if (focusField === 3) notesRef.current?.focus();
+  }, [focusField]);
+
+  // Auto-fill abbr from name while on name field
   useEffect(() => {
     if (!existing && focusField === 0) setAbbr(autoAbbr(name));
   }, [name, existing, focusField]);
-
-  const typeChar = useCallback((ch) => {
-    if (focusField === 0) setName(prev => prev.slice(0, 39) + ch);
-    if (focusField === 1) setAbbr(prev => prev.slice(0, 2) + ch);
-    if (focusField === 3) setNotes(prev => prev.slice(0, 119) + ch);
-  }, [focusField]);
-
-  const deleteLast = useCallback(() => {
-    if (focusField === 0) { name.length > 0 ? setName(p => p.slice(0,-1)) : pop(); }
-    if (focusField === 1) { abbr.length  > 0 ? setAbbr(p => p.slice(0,-1)) : setFocusField(0); }
-    if (focusField === 3) { notes.length > 0 ? setNotes(p => p.slice(0,-1)) : setFocusField(2); }
-  }, [focusField, name, abbr, notes, pop]);
 
   const handleSave = useCallback(async () => {
     if (!isValid) return;
     const now = new Date().toISOString();
 
-    // Build verses array from versesToHighlight
     const newVerses = [];
     if (versesToHighlight && versesToHighlight.length > 0) {
       const grouped = {};
@@ -68,30 +78,29 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
     await saveHighlighter(hl);
     if (onSave) onSave(hl);
     if (onDone) onDone();
-    pop();
-  }, [isValid, name, abbr, color, notes, existing, versesToHighlight, onSave, onDone, pop]);
+    pop(); // pop HighlightCreationPage → HighlightSelectionPage
+    if (autoClose) pop(); // pop HighlightSelectionPage → reader (batched with above)
+  }, [isValid, name, abbr, color, notes, existing, versesToHighlight, onSave, onDone, pop, autoClose]);
 
   useEffect(() => {
     const handlers = {
       ArrowUp:   () => setFocusField(prev => Math.max(0, prev - 1)),
       ArrowDown: () => setFocusField(prev => Math.min(fields.length - 1, prev + 1)),
       Enter:     () => { if (focusField < fields.length - 1) setFocusField(p => p + 1); else handleSave(); },
-      Backspace: deleteLast,
-      SoftLeft:  () => pop(),
     };
     if (focusField === 2) {
       handlers.ArrowLeft  = () => setColor(HIGHLIGHT_COLORS[Math.max(0, colorIndex - 1)]);
       handlers.ArrowRight = () => setColor(HIGHLIGHT_COLORS[Math.min(HIGHLIGHT_COLORS.length - 1, colorIndex + 1)]);
-    } else {
-      [...'0123456789*#'].forEach(d => { handlers[d] = () => typeChar(d); });
     }
     registerKeyHandlers(handlers);
     registerSoftkeys({
       left:   { label: 'Cancel', action: pop },
       center: focusField < fields.length - 1 ? 'Next' : 'Save',
-      right:  isValid ? { label: 'Save', action: handleSave } : '',
+      // Only offer the right Save on earlier fields; on the last field the center
+      // key already says Save, so showing it twice is redundant.
+      right:  isValid && focusField < fields.length - 1 ? { label: 'Save', action: handleSave } : '',
     });
-  }, [focusField, colorIndex, isValid, handleSave, deleteLast, typeChar, pop,
+  }, [focusField, colorIndex, isValid, handleSave, pop,
       registerKeyHandlers, registerSoftkeys, fields.length]);
 
   return (
@@ -100,21 +109,49 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
         <span className="header-title">{existing ? 'Edit Highlighter' : 'New Highlighter'}</span>
       </div>
       <div className="page-content">
-        <div className={`field-row${focusField === 0 ? ' focused' : ''}`}>
+
+        {/* Name */}
+        <div className={`field-row${focusField === 0 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[0] = el}
+          onClick={() => setFocusField(0)}>
           <div className="field-label">Name *</div>
-          <div className="field-value">
-            {name || <span style={{ color: 'var(--color-text-muted)' }}>e.g. Important</span>}
-            {focusField === 0 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={nameRef}
+            className="field-input"
+            type="text"
+            value={name}
+            placeholder="e.g. Important"
+            maxLength={40}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && name.length === 0) pop();
+            }}
+          />
         </div>
-        <div className={`field-row${focusField === 1 ? ' focused' : ''}`}>
+
+        {/* Abbreviation */}
+        <div className={`field-row${focusField === 1 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[1] = el}
+          onClick={() => setFocusField(1)}>
           <div className="field-label">Abbreviation (1–3 chars)</div>
-          <div className="field-value">
-            {abbr || '–'}
-            {focusField === 1 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={abbrRef}
+            className="field-input"
+            type="text"
+            value={abbr}
+            placeholder="–"
+            maxLength={3}
+            onChange={e => setAbbr(e.target.value.toUpperCase().slice(0, 3))}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && abbr.length === 0) setFocusField(0);
+            }}
+          />
         </div>
-        <div className={`field-row${focusField === 2 ? ' focused' : ''}`}>
+
+        {/* Color */}
+        <div className={`field-row${focusField === 2 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[2] = el}
+          onClick={() => setFocusField(2)}>
           <div className="field-label">Color {focusField === 2 ? '(◀/▶ to change)' : ''}</div>
           <div className="color-palette">
             {HIGHLIGHT_COLORS.map(c => (
@@ -122,18 +159,31 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
                 key={c}
                 className={`color-dot${color === c ? ' selected' : ''}`}
                 style={{ background: c }}
-                onClick={() => setColor(c)}
+                onClick={ev => { ev.stopPropagation(); setColor(c); }}
               />
             ))}
           </div>
         </div>
-        <div className={`field-row${focusField === 3 ? ' focused' : ''}`}>
+
+        {/* Notes */}
+        <div className={`field-row${focusField === 3 ? ' focused' : ''}`}
+          ref={el => fieldRefs.current[3] = el}
+          onClick={() => setFocusField(3)}>
           <div className="field-label">Notes (optional)</div>
-          <div className="field-value" style={{ minHeight: 36, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-            {notes || '–'}
-            {focusField === 3 && <span className="cursor-blink" />}
-          </div>
+          <input
+            ref={notesRef}
+            className="field-input"
+            type="text"
+            value={notes}
+            placeholder="–"
+            maxLength={120}
+            onChange={e => setNotes(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Backspace' && notes.length === 0) setFocusField(2);
+            }}
+          />
         </div>
+
         {versesToHighlight && versesToHighlight.length > 0 && (
           <div style={{ padding: '8px 10px', fontSize: 11, color: 'var(--color-text-dim)' }}>
             {versesToHighlight.length} verse(s) will be highlighted

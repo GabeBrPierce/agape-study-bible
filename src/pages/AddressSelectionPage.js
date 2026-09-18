@@ -1,13 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { parseAddress, BOOKS, BOOK_BY_ID } from '../data/books';
 
-// KaiOS keypad mapping for T9-like text input
-const KEYPAD_MAP = {
-  '2': 'abc2', '3': 'def3', '4': 'ghi4', '5': 'jkl5',
-  '6': 'mno6', '7': 'pqrs7', '8': 'tuv8', '9': 'wxyz9',
-  '0': ' 0',   '1': '1',    '*': '*',     '#': '#',
-};
 
 export default function AddressSelectionPage() {
   const { push, pop, registerKeyHandlers, registerSoftkeys } = useApp();
@@ -15,6 +9,24 @@ export default function AddressSelectionPage() {
   const [results, setResults] = useState([]);
   const [focusIndex, setFocusIndex] = useState(-1); // -1 = input focused
   const [invalid, setInvalid] = useState(false);
+  const inputRef = useRef(null);
+  const listRef  = useRef(null);
+  const itemRefs = useRef({});
+
+  // Auto-focus the input on mount so the OS IME activates immediately
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Scroll focused result to centre when navigating the list
+  useEffect(() => {
+    if (focusIndex < 0) return;
+    const el = itemRefs.current[focusIndex];
+    const container = listRef.current;
+    if (!el || !container) return;
+    const targetScrollTop = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+  }, [focusIndex]);
 
   // Filter results whenever query changes
   useEffect(() => {
@@ -45,19 +57,6 @@ export default function AddressSelectionPage() {
     }
   }, [query]);
 
-  const appendChar = useCallback((ch) => {
-    setQuery(prev => prev + ch);
-    setFocusIndex(-1);
-  }, []);
-
-  const deleteChar = useCallback(() => {
-    if (query.length > 0) {
-      setQuery(prev => prev.slice(0, -1));
-      setFocusIndex(-1);
-    } else {
-      pop();
-    }
-  }, [query, pop]);
 
   const handleSelect = useCallback(() => {
     if (focusIndex >= 0 && results[focusIndex]) {
@@ -78,18 +77,13 @@ export default function AddressSelectionPage() {
         });
       },
       Enter: handleSelect,
-      Backspace: deleteChar,
-      // Keypad
-      ...Object.fromEntries(
-        ['0','1','2','3','4','5','6','7','8','9','*','#'].map(k => [k, () => appendChar(k)])
-      ),
     });
     registerSoftkeys({
       left: { label: 'Back', action: pop },
       center: 'Go',
       right: { label: 'Topical', action: () => push('TopicalSelectionPage') },
     });
-  }, [results, focusIndex, handleSelect, deleteChar, appendChar, pop, push, registerKeyHandlers, registerSoftkeys]);
+  }, [results, focusIndex, handleSelect, pop, push, registerKeyHandlers, registerSoftkeys]);
 
   return (
     <div className="page">
@@ -97,12 +91,20 @@ export default function AddressSelectionPage() {
         <span className="header-title">Address Selection</span>
       </div>
 
-      {/* Search bar */}
+      {/* Search bar — real input so the OS IME handles T9/multitap automatically */}
       <div className="search-bar">
-        <div className="search-input-display">
-          {query || <span style={{ color: 'var(--color-text-muted)' }}>Type book or address…</span>}
-          <span className="cursor-blink" />
-        </div>
+        <input
+          ref={inputRef}
+          className="search-input-display"
+          type="text"
+          value={query}
+          placeholder="Type book or address…"
+          onChange={e => { setQuery(e.target.value); setFocusIndex(-1); }}
+          onKeyDown={e => {
+            // When the input is empty, Backspace should navigate back
+            if (e.key === 'Backspace' && query.length === 0) pop();
+          }}
+        />
       </div>
 
       {invalid && (
@@ -111,10 +113,11 @@ export default function AddressSelectionPage() {
         </div>
       )}
 
-      <div className="page-content">
+      <div className="page-content" ref={listRef}>
         {results.map((r, idx) => (
           <div
             key={idx}
+            ref={el => itemRefs.current[idx] = el}
             className={`list-item${focusIndex === idx ? ' focused' : ''}`}
             onClick={() => { setFocusIndex(idx); activateResult(r, push); }}
           >
