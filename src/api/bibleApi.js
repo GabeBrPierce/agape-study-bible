@@ -1,7 +1,10 @@
 // Agape Study Bible — API + caching layer
 // Uses bible.helloao.org (Free Use Bible API)
 
-import { getCachedChapter, cacheChapter, getSettings, getTranslations } from '../db/db';
+import {
+  getCachedChapter, cacheChapter, getSettings, getTranslations,
+  getCachedCommentary, cacheCommentary,
+} from '../db/db';
 import searchIndex from '../db/searchIndex';
 
 const BASE_URL = 'https://bible.helloao.org/api';
@@ -234,6 +237,80 @@ export async function fetchCrossReferences(book, chapter) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
+}
+
+// ─── Commentaries ─────────────────────────────────────────────────────────────
+// Public-domain commentaries from helloao (Matthew Henry, Adam Clarke, JFB,
+// Calvin, Gill, Keil-Delitzsch, Tyndale, …). Fetched one chapter at a time and
+// kept in IndexedDB permanently, so anything read once is available offline.
+
+// Used when the catalog has never been fetched and the device is offline.
+const FALLBACK_COMMENTARIES = [
+  { id: 'matthew-henry', name: 'Matthew Henry Bible Commentary' },
+];
+
+/**
+ * List of available commentaries: [{ id, name }]. Fetched from the API when
+ * possible (so newly published commentaries appear), otherwise the last
+ * cached catalog, otherwise a built-in fallback.
+ */
+export async function fetchAvailableCommentaries() {
+  if (await canFetch()) {
+    try {
+      const res = await fetch(`${BASE_URL}/available_commentaries.json`);
+      if (res.ok) {
+        const json = await res.json();
+        const list = (json.commentaries || [])
+          .filter(c => c.language === 'eng')
+          .map(c => ({ id: c.id, name: c.englishName || c.name }));
+        if (list.length) {
+          try { await cacheCommentary('list', list); } catch (_) {}
+          return list;
+        }
+      }
+    } catch (_) {}
+  }
+  try {
+    const cached = await getCachedCommentary('list');
+    if (cached && cached.data.length) return cached.data;
+  } catch (_) {}
+  return FALLBACK_COMMENTARIES;
+}
+
+/**
+ * Fetch one chapter of a commentary. Strategy: IndexedDB cache, then API
+ * (and cache the result). Throws 'OFFLINE' when not cached and no network,
+ * 'NOT_AVAILABLE' when the commentary has nothing for this chapter.
+ *
+ * Returns { introduction, sections: [{ verse, text }] } sorted by verse, where
+ * each section's comment starts at `verse` and runs until the next section.
+ */
+export async function fetchCommentaryChapter(commentaryId, book, chapter) {
+  const key = `${commentaryId}/${book}/${chapter}`;
+  try {
+    const cached = await getCachedCommentary(key);
+    if (cached) return cached.data;
+  } catch (_) {}
+
+  if (!(await canFetch())) throw new Error('OFFLINE');
+
+  const res = await fetch(`${BASE_URL}/c/${commentaryId}/${book}/${chapter}.json`);
+  if (res.status === 404) throw new Error('NOT_AVAILABLE');
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const json = await res.json();
+
+  // Keep only what the commentary page shows; the raw response repeats
+  // commentary/book metadata (including long book introductions) every chapter.
+  const data = {
+    introduction: (json.chapter?.introduction || '').trim(),
+    sections: (json.chapter?.content || [])
+      .filter(item => item.type === 'verse')
+      .map(item => ({ verse: item.number, text: verseContentToText(item.content) }))
+      .filter(s => s.text)
+      .sort((a, b) => a.verse - b.verse),
+  };
+  try { await cacheCommentary(key, data); } catch (_) {}
+  return data;
 }
 
 // Interlinear + lexicon data repo (served via GitHub Pages).

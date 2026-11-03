@@ -1,8 +1,9 @@
 // IndexedDB wrapper for Agape Study Bible
-// Stores: settings, bookmarks, highlights, favorites, chapterCache, translations
+// Stores: settings, bookmarks, highlights, favorites, chapterCache, translations,
+//         readingProgress, commentaryCache
 
 const DB_NAME = 'agape-study-bible';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let _db = null;
 
@@ -52,6 +53,13 @@ function openDB() {
       // readingProgress — one record per reading plan, keyed by planId
       if (!db.objectStoreNames.contains('readingProgress')) {
         db.createObjectStore('readingProgress', { keyPath: 'planId' });
+      }
+
+      // commentaryCache — keyed by "{commentaryId}/{book}/{chapter}", plus a
+      // "list" entry holding the available-commentaries catalog. Never evicted:
+      // once a chapter's commentary is fetched it stays readable offline.
+      if (!db.objectStoreNames.contains('commentaryCache')) {
+        db.createObjectStore('commentaryCache', { keyPath: 'key' });
       }
     };
 
@@ -216,6 +224,41 @@ export async function removeHighlightForVerses(book, chapter, verseNumbers) {
   }
 }
 
+/**
+ * Add verses to a highlighter, merging them with any verses it already holds
+ * in the same chapter. The verses are first removed from every highlighter
+ * (this one included) so a verse only ever carries one highlight and the color
+ * just applied is the one shown.
+ * versesToHighlight: [{ book, chapter, verse }]. Returns the saved highlighter.
+ */
+export async function addVersesToHighlighter(highlighter, versesToHighlight) {
+  const now = new Date().toISOString();
+  const grouped = {};
+  for (const v of versesToHighlight) {
+    const key = `${v.book}|${v.chapter}`;
+    if (!grouped[key]) grouped[key] = { book: v.book, chapter: v.chapter, verses: [] };
+    grouped[key].verses.push(v.verse);
+  }
+  for (const g of Object.values(grouped)) {
+    await removeHighlightForVerses(g.book, g.chapter, g.verses);
+  }
+
+  const stored = await getHighlighter(highlighter.id);
+  const entries = ((stored ? stored.verses : highlighter.verses) || []).map(e => ({ ...e }));
+  for (const g of Object.values(grouped)) {
+    const entry = entries.find(e => e.book === g.book && e.chapter === g.chapter);
+    if (entry) {
+      entry.verses = Array.from(new Set([...entry.verses, ...g.verses])).sort((a, b) => a - b);
+    } else {
+      entries.push({ book: g.book, chapter: g.chapter, verses: [...g.verses].sort((a, b) => a - b), addedAt: now });
+    }
+  }
+
+  const updated = { ...highlighter, verses: entries };
+  await saveHighlighter(updated);
+  return updated;
+}
+
 export async function getRecentHighlighters(n = 3) {
   const all = await getAll('highlights');
   return all.sort((a, b) => b.usedAt.localeCompare(a.usedAt)).slice(0, n);
@@ -251,6 +294,16 @@ export async function getFavoriteSetForChapter(book, chapter) {
   return new Set(
     all.filter(f => f.book === book && f.chapter === chapter).map(f => f.verse)
   );
+}
+
+// ─── Commentary Cache ─────────────────────────────────────────────────────────
+
+export async function getCachedCommentary(key) {
+  return getOne('commentaryCache', key);
+}
+
+export async function cacheCommentary(key, data) {
+  await put('commentaryCache', { key, data, fetchedAt: new Date().toISOString() });
 }
 
 // ─── Chapter Cache ────────────────────────────────────────────────────────────

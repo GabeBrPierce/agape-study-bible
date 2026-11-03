@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { saveHighlighter } from '../db/db';
+import { saveHighlighter, addVersesToHighlighter } from '../db/db';
 import { HIGHLIGHT_COLORS } from '../data/books';
 
 function genId() {
@@ -54,18 +54,7 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
     if (!isValid) return;
     const now = new Date().toISOString();
 
-    const newVerses = [];
-    if (versesToHighlight && versesToHighlight.length > 0) {
-      const grouped = {};
-      for (const v of versesToHighlight) {
-        const key = `${v.book}|${v.chapter}`;
-        if (!grouped[key]) grouped[key] = { book: v.book, chapter: v.chapter, verses: [], addedAt: now };
-        grouped[key].verses.push(v.verse);
-      }
-      newVerses.push(...Object.values(grouped));
-    }
-
-    const hl = {
+    let hl = {
       id:        existing?.id || genId(),
       name:      name.trim(),
       abbr:      abbr.trim().toUpperCase() || autoAbbr(name),
@@ -73,9 +62,12 @@ export default function HighlightCreationPage({ existing, versesToHighlight, onS
       notes:     notes.trim(),
       createdAt: existing?.createdAt || now,
       usedAt:    now,
-      verses:    existing ? [...(existing.verses || []), ...newVerses] : newVerses,
+      verses:    existing ? (existing.verses || []) : [],
     };
     await saveHighlighter(hl);
+    if (versesToHighlight && versesToHighlight.length > 0) {
+      hl = await addVersesToHighlighter(hl, versesToHighlight);
+    }
     if (onSave) onSave(hl);
     if (onDone) onDone();
     pop(); // pop HighlightCreationPage → HighlightSelectionPage

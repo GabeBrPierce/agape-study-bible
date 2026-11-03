@@ -28,9 +28,20 @@ const BASE_inspectActions = [
   { id: 'bookmark',    label: '🔖 Bookmark' },
   { id: 'crossref',    label: '🔗 Cross References' },
   { id: 'interlinear', label: '📖 Interlinear' },
+  { id: 'commentary',  label: '📜 Commentary' },
   { id: 'compare',     label: '⇄ Compare Translations' },
   { id: 'listen',      label: '🎧 Listen' },
 ];
+
+// Translucent highlight fill as rgba(). KaiOS 2.x (Gecko 48) does not support
+// 8-digit #RRGGBBAA colors and drops the whole background, so the tint must not
+// be built by appending an alpha byte to the hex string.
+function highlightTint(hex, alpha = 0.2) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return 'transparent';
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
 
 export default function ChapterReaderPage({ book, chapter, initialVerse = 1, bookmarkReadOnly = false }) {
   const {
@@ -45,7 +56,13 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
   const [error, setError]               = useState(null);
   const [focusedVerse, setFocusedVerse] = useState(0); // index in verses array
   const [mode, setMode]                 = useState(MODE_READING);
-  const [selRange, setSelRange]         = useState({ start: 0, end: 0 });
+  // Selection is an anchor (where Enter was pressed) plus a cursor that can move
+  // up or down from it; selRange is the ordered span between the two.
+  const [sel, setSel]                   = useState({ anchor: 0, cursor: 0 });
+  const selRange = useMemo(() => ({
+    start: Math.min(sel.anchor, sel.cursor),
+    end:   Math.max(sel.anchor, sel.cursor),
+  }), [sel]);
   const [inspectFocus, setInspectFocus] = useState(0);
   const [highlightMap, setHighlightMap] = useState({}); // verseNumber → color
   const [favoriteSet, setFavoriteSet]   = useState(new Set());
@@ -88,6 +105,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
       { id: 'bookmark',         label: '🔖 Bookmark' },
       { id: 'crossref',         label: '🔗 Cross References' },
       { id: 'interlinear',      label: '📖 Interlinear' },
+      { id: 'commentary',       label: '📜 Commentary' },
       { id: 'compare',          label: '⇄ Compare Translations' },
       { id: 'listen',           label: '🎧 Listen' },
     ];
@@ -173,9 +191,9 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
   // the edge we're travelling toward (top when moving down, bottom when moving
   // up) so the reader starts at the right end and the arrow keys can then scroll
   // through the verse before focus jumps to the next one.
-  // While selecting, follow the END of the selection so the growing range stays
+  // While selecting, follow the selection cursor so the growing range stays
   // in view; otherwise follow the focused verse.
-  const activeVerseIndex = mode === MODE_SELECTING ? selRange.end : focusedVerse;
+  const activeVerseIndex = mode === MODE_SELECTING ? sel.cursor : focusedVerse;
   useEffect(() => {
     const el = verseRefs.current[activeVerseIndex];
     const c  = contentRef.current;
@@ -274,7 +292,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
     ArrowLeft:  prevChapter,
     ArrowRight: nextChapter,
     Enter: () => {
-      setSelRange({ start: focusedVerse, end: focusedVerse });
+      setSel({ anchor: focusedVerse, cursor: focusedVerse });
       setMode(MODE_SELECTING);
     },
     Backspace: () => pop(),
@@ -297,11 +315,11 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
 
   // ── Mode: SELECTING key handlers ─────────────────────────────────────────
   const selectingHandlers = useCallback(() => ({
-    ArrowUp: () => { navDirRef.current = -1; setSelRange(prev => ({
-      ...prev, end: Math.max(prev.start, prev.end - 1)
+    ArrowUp: () => { navDirRef.current = -1; setSel(prev => ({
+      ...prev, cursor: Math.max(0, prev.cursor - 1)
     })); },
-    ArrowDown: () => { navDirRef.current = 1; setSelRange(prev => ({
-      ...prev, end: Math.min(verses.length - 1, prev.end + 1)
+    ArrowDown: () => { navDirRef.current = 1; setSel(prev => ({
+      ...prev, cursor: Math.min(verses.length - 1, prev.cursor + 1)
     })); },
     Enter: () => {
       setInspectFocus(0);
@@ -363,6 +381,17 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
         }
         break;
       }
+      case 'commentary':
+        if (selectedVerses.length) {
+          push('CommentaryPage', {
+            book,
+            chapter,
+            verseStart: selectedVerses[0].verse,
+            verseEnd:   selectedVerses[selectedVerses.length - 1].verse,
+            lastVerse:  verses[verses.length - 1]?.verse,
+          });
+        }
+        break;
       case 'compare': {
         const cv = selectedVerses[0];
         if (cv) {
@@ -536,7 +565,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
                   : isSelected
                     ? 'var(--color-accent-dim)'
                     : hlColor
-                      ? hlColor + '33'
+                      ? highlightTint(hlColor)
                       : 'transparent',
                 borderLeft: hlColor ? `3px solid ${hlColor}` : undefined,
                 padding: activeBookmark && bookmarkSessionActive ? '5px 20px 5px 8px' : '5px 8px',

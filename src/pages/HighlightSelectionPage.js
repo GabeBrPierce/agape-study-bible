@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { getHighlighters, deleteHighlighter, saveHighlighter } from '../db/db';
+import { getHighlighters, deleteHighlighter, addVersesToHighlighter } from '../db/db';
 
 export default function HighlightSelectionPage({ entryPoint, versesToHighlight, onDone }) {
   const { push, pop, registerKeyHandlers, registerSoftkeys } = useApp();
@@ -33,28 +33,9 @@ export default function HighlightSelectionPage({ entryPoint, versesToHighlight, 
 
   const applyHighlight = useCallback(async (hl) => {
     if (!versesToHighlight || versesToHighlight.length === 0) return;
-
-    // Group verses by book+chapter
-    const grouped = {};
-    for (const v of versesToHighlight) {
-      const key = `${v.book}|${v.chapter}`;
-      if (!grouped[key]) grouped[key] = { book: v.book, chapter: v.chapter, verses: [], addedAt: new Date().toISOString() };
-      grouped[key].verses.push(v.verse);
-    }
-
-    const updatedHl = {
-      ...hl,
-      usedAt: new Date().toISOString(),
-      verses: [
-        ...(hl.verses || []).filter(existing => {
-          // Remove any overlapping entries
-          const key = `${existing.book}|${existing.chapter}`;
-          return !grouped[key];
-        }),
-        ...Object.values(grouped),
-      ],
-    };
-    await saveHighlighter(updatedHl);
+    // Merges into the verses this highlighter already has in the chapter
+    // (previously the chapter's existing entry was replaced, wiping earlier highlights).
+    await addVersesToHighlighter({ ...hl, usedAt: new Date().toISOString() }, versesToHighlight);
     if (onDone) onDone();
     pop();
   }, [versesToHighlight, onDone, pop]);
