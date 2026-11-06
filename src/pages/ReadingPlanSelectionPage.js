@@ -3,8 +3,10 @@ import { useApp } from '../context/AppContext';
 import { PLANS } from '../data/readingPlans';
 
 export default function ReadingPlanSelectionPage() {
-  const { push, pop, registerKeyHandlers, registerSoftkeys, settings, updateSettings } = useApp();
-  const [focusIndex, setFocusIndex] = useState(0);
+  const { push, pop, popToRoot, registerKeyHandlers, registerSoftkeys, settings, updateSettings } = useApp();
+  // Open on the plan already in use so the current choice is visible at a glance.
+  const [focusIndex, setFocusIndex] = useState(() =>
+    Math.max(0, PLANS.findIndex(p => p.id === settings.activeReadingPlanId)));
   const listRef = useRef(null);
 
   useEffect(() => {
@@ -15,8 +17,11 @@ export default function ReadingPlanSelectionPage() {
 
   const selectPlan = useCallback(async (plan) => {
     await updateSettings({ activeReadingPlanId: plan.id });
+    // Reset the stack to Menu > Daily Reading so Back always lands on the menu
+    // instead of walking through stale plan / reading pages.
+    popToRoot();
     push('DailyReadingPage', { planId: plan.id });
-  }, [push, updateSettings]);
+  }, [push, popToRoot, updateSettings]);
 
   const handleSelect = useCallback(() => {
     const plan = PLANS[focusIndex];

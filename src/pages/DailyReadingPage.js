@@ -1,23 +1,20 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
+import { getPlan, formatReading, TOTAL_READING_DAYS } from '../data/readingPlans';
+import { BOOK_BY_ID } from '../data/books';
 import {
-  getPlan, getReadingForDay, formatReading, dayOfYear, TOTAL_READING_DAYS,
-} from '../data/readingPlans';
-import { getReadingProgress, saveReadingProgress } from '../db/db';
+  loadProgress, currentDayFor, chaptersForDay, sessionIndexFor, isToday,
+} from '../data/dailyReadingSession';
+import { saveReadingProgress, getReadingProgress } from '../db/db';
 
-function defaultProgress(planId, mode) {
-  return {
-    planId,
-    mode,
-    currentDay: 1,
-    completedDays: [],
-    startedAt: new Date().toISOString(),
-    lastReadAt: null,
-  };
+function chapterLabel(c) {
+  if (!c) return '';
+  const b = BOOK_BY_ID[c.book];
+  return `${b ? b.name : c.book} ${c.chapter}`;
 }
 
 export default function DailyReadingPage({ planId }) {
-  const { push, pop, popToRoot, registerKeyHandlers, registerSoftkeys } = useApp();
+  const { push, popToRoot, registerKeyHandlers, registerSoftkeys } = useApp();
   const plan = getPlan(planId);
 
   const [progress, setProgress]     = useState(null);
@@ -25,32 +22,50 @@ export default function DailyReadingPage({ planId }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const listRef = useRef(null);
 
-  // Load (or initialize) this plan's saved progress.
+  // Load (or initialize) this plan's saved progress. Re-runs on every visit,
+  // so returning from the reader shows the latest session position.
   useEffect(() => {
     if (!plan) { setLoading(false); return; }
     let cancelled = false;
-    getReadingProgress(planId).then(async (rec) => {
+    (async () => {
+      const existing = await getReadingProgress(planId);
+      const record = existing || await loadProgress(planId);
+      if (!existing) await saveReadingProgress(record).catch(() => {});
       if (cancelled) return;
-      const record = rec || defaultProgress(planId, plan.mode);
-      if (!rec) await saveReadingProgress(record).catch(() => {});
       setProgress(record);
       setLoading(false);
-    });
+    })();
     return () => { cancelled = true; };
   }, [planId, plan]);
 
-  const day = plan
-    ? (plan.mode === 'date' ? dayOfYear() : (progress?.currentDay || 1))
-    : 1;
-  const reading = plan ? getReadingForDay(planId, day) : [];
+  const day = currentDayFor(plan, progress);
+  const chapters = useMemo(() => (plan ? chaptersForDay(planId, day) : []), [plan, planId, day]);
   const completedDays = progress?.completedDays || [];
-  const isDoneToday = completedDays.includes(day);
+  const isDayDone = completedDays.includes(day);
+  const resumeIndex = sessionIndexFor(progress, day, chapters.length);
+  const inSession = !isDayDone && progress?.session?.day === day;
 
-  const items = [
-    ...reading.map(r => ({ type: 'reading', r })),
-    { type: 'markDone' },
+  // Group the flat chapter list back into display ranges, remembering where
+  // each range starts so it can be opened directly.
+  const ranges = useMemo(() => {
+    const out = [];
+    chapters.forEach((c, i) => {
+      const last = out[out.length - 1];
+      if (last && last.book === c.book && c.chapter === last.endChapter + 1) {
+        last.endChapter = c.chapter;
+        last.endIndex = i;
+      } else {
+        out.push({ book: c.book, startChapter: c.chapter, endChapter: c.chapter, startIndex: i, endIndex: i, testament: c.testament });
+      }
+    });
+    return out;
+  }, [chapters]);
+
+  const items = useMemo(() => [
+    ...(chapters.length ? [{ type: 'start' }] : []),
+    ...ranges.map(r => ({ type: 'range', r })),
     { type: 'changePlan' },
-  ];
+  ], [chapters.length, ranges]);
 
   useEffect(() => {
     if (!listRef.current) return;
@@ -58,26 +73,29 @@ export default function DailyReadingPage({ planId }) {
     if (el) el.scrollIntoView({ block: 'nearest' });
   }, [focusIndex]);
 
-  const markDone = useCallback(async () => {
-    if (!progress || isDoneToday) return;
-    const nowIso = new Date().toISOString();
-    const updated = plan.mode === 'progress'
-      ? { ...progress, currentDay: Math.min(day + 1, TOTAL_READING_DAYS), completedDays: [...completedDays, day], lastReadAt: nowIso }
-      : { ...progress, completedDays: [...completedDays, day], lastReadAt: nowIso };
-    await saveReadingProgress(updated);
-    setProgress(updated);
-  }, [progress, isDoneToday, plan, day, completedDays]);
+  const startAt = useCallback((index, resume) => {
+    const c = chapters[index];
+    if (!c) return;
+    push('ChapterReaderPage', {
+      book: c.book,
+      chapter: c.chapter,
+      initialVerse: 1,
+      bookmarkReadOnly: true,
+      daily: { planId, day, chapters, index, fresh: !resume },
+    });
+  }, [chapters, push, planId, day]);
 
   const activateItem = useCallback((item) => {
     if (!item) return;
-    if (item.type === 'reading') {
-      push('ChapterReaderPage', { book: item.r.book, chapter: item.r.startChapter, bookmarkReadOnly: true });
-    } else if (item.type === 'markDone') {
-      markDone();
+    if (item.type === 'start') {
+      if (isDayDone) startAt(0, false);
+      else startAt(resumeIndex, inSession);
+    } else if (item.type === 'range') {
+      startAt(item.r.startIndex, false);
     } else if (item.type === 'changePlan') {
       push('ReadingPlanSelectionPage');
     }
-  }, [push, markDone]);
+  }, [isDayDone, startAt, resumeIndex, inSession, push]);
 
   useEffect(() => {
     registerKeyHandlers({
@@ -113,6 +131,12 @@ export default function DailyReadingPage({ planId }) {
   }
 
   const pct = Math.round((completedDays.length / TOTAL_READING_DAYS) * 100);
+  const finishedToday = isToday(progress?.lastCompletedAt);
+
+  let startLabel;
+  if (isDayDone) startLabel = '✓ Completed · Read Again';
+  else if (inSession) startLabel = `▶ Continue · ${chapterLabel(chapters[resumeIndex])}`;
+  else startLabel = '▶ Start Today’s Reading';
 
   return (
     <div className="page">
@@ -128,46 +152,46 @@ export default function DailyReadingPage({ planId }) {
           <div className="progress-bar-track">
             <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
           </div>
+          {finishedToday && !isDayDone && (
+            <div style={{ fontSize: 11, color: 'var(--color-accent)', marginTop: 4 }}>
+              ✓ You finished a day’s reading today
+            </div>
+          )}
         </div>
 
         <div className="section-header">Today's Reading</div>
-        {reading.length === 0 && (
+        {chapters.length === 0 && (
           <div className="list-item disabled" style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
             No reading scheduled
           </div>
         )}
         {items.map((item, idx) => {
           const focused = focusIndex === idx;
-          if (item.type === 'reading') {
+          const cls = `list-item${focused ? ' focused' : ''}`;
+          const onClick = () => { setFocusIndex(idx); activateItem(item); };
+          if (item.type === 'start') {
             return (
-              <div
-                key={`r-${idx}`}
-                className={`list-item${focused ? ' focused' : ''}`}
-                onClick={() => { setFocusIndex(idx); activateItem(item); }}
-              >
-                <span className="list-item-primary">{formatReading([item.r])}</span>
+              <div key="start" className={cls} onClick={onClick}>
+                <span className="list-item-primary" style={{ fontWeight: 'bold' }}>{startLabel}</span>
               </div>
             );
           }
-          if (item.type === 'markDone') {
+          if (item.type === 'range') {
+            const { r } = item;
+            const read = isDayDone || (inSession && r.endIndex < resumeIndex);
             return (
-              <div
-                key="markDone"
-                className={`list-item${focused ? ' focused' : ''}${isDoneToday ? ' disabled' : ''}`}
-                onClick={() => { setFocusIndex(idx); activateItem(item); }}
-              >
+              <div key={`r-${r.startIndex}`} className={cls} style={{ paddingLeft: 20 }} onClick={onClick}>
                 <span className="list-item-primary">
-                  {isDoneToday ? '✓ Marked Done' : 'Mark Today’s Reading Done'}
+                  {formatReading([r])}{read ? ' ✓' : ''}
+                </span>
+                <span style={{ fontSize: 11, color: focused ? 'var(--color-focus-text-dim)' : 'var(--color-text-dim)' }}>
+                  {plan.structure.endsWith('Combined') ? (r.testament || '') : ''}
                 </span>
               </div>
             );
           }
           return (
-            <div
-              key="changePlan"
-              className={`list-item${focused ? ' focused' : ''}`}
-              onClick={() => { setFocusIndex(idx); activateItem(item); }}
-            >
+            <div key="changePlan" className={cls} onClick={onClick}>
               <span className="list-item-primary">Change Reading Plan ›</span>
             </div>
           );

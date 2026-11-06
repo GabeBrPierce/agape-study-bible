@@ -91,6 +91,15 @@ export function AppProvider({ children }) {
     return updated;
   }, []);
 
+  // ── Toast (+ optional confetti) ─────────────────────────────────────────────
+  // One toast at a time; a new one replaces the old. `id` changes on every call
+  // so the same text shown twice still restarts its timer and animation.
+  const [toast, setToast] = useState(null);
+  const showToast = useCallback((text, opts = {}) => {
+    setToast({ text, confetti: !!opts.confetti, id: Date.now() + Math.random() });
+  }, []);
+  const dismissToast = useCallback(() => setToast(null), []);
+
   // ── Global keydown ────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -166,6 +175,9 @@ export function AppProvider({ children }) {
     keyHandlers,
     settings,
     updateSettings,
+    toast,
+    showToast,
+    dismissToast,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

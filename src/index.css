@@ -464,6 +464,63 @@ input.search-input-display::placeholder {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 44px;              /* clear of the softkey bar */
+  z-index: 1001;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: bold;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: toast-in 0.25s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Confetti ── */
+.confetti {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  display: block;
+  opacity: 0;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
+@keyframes confetti-fall-a {
+  0%   { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  50%  { transform: translate(18px, 55vh) rotate(260deg); }
+  100% { opacity: 0.9; transform: translate(-6px, 110vh) rotate(540deg); }
+}
+
+@keyframes confetti-fall-b {
+  0%   { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  50%  { transform: translate(-18px, 55vh) rotate(-240deg); }
+  100% { opacity: 0.9; transform: translate(8px, 110vh) rotate(-500deg); }
+}
+
 /* ── Match highlight ── */
 mark {
   background: rgba(255, 213, 0, 0.35);

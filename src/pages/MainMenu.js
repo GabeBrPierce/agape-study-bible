@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { getRecentBookmarks, getRecentHighlighters, getSettings } from '../db/db';
+import { getRecentBookmarks, getRecentHighlighters, getSettings, getReadingProgress } from '../db/db';
 import { BOOK_BY_ID } from '../data/books';
+import { isToday } from '../data/dailyReadingSession';
 
 const MENU_ITEMS = [
   { id: 'continue',     label: 'Continue Reading',  requiresLocation: true  },
@@ -21,11 +22,21 @@ export default function MainMenu() {
   const [recentHighlights, setRecentHighlights] = useState([]);
   const savedLocation = settings.savedLocation;
   const activeReadingPlanId = settings.activeReadingPlanId;
+  const [dailyDoneToday, setDailyDoneToday] = useState(false);
+
+  useEffect(() => {
+    if (!activeReadingPlanId) { setDailyDoneToday(false); return; }
+    let cancelled = false;
+    getReadingProgress(activeReadingPlanId)
+      .then(p => { if (!cancelled) setDailyDoneToday(isToday(p?.lastCompletedAt)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeReadingPlanId]);
 
   // Build the flat list of focusable items (memoized so stable callbacks don't loop)
   const items = useMemo(
-    () => buildItemList(MENU_ITEMS, recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId),
-    [recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId]
+    () => buildItemList(MENU_ITEMS, recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId, dailyDoneToday),
+    [recentBookmarks, recentHighlights, savedLocation, activeReadingPlanId, dailyDoneToday]
   );
 
   useEffect(() => {
@@ -134,7 +145,7 @@ function MenuRow({ item, focused, onClick }) {
   );
 }
 
-function buildItemList(menuItems, bookmarks, highlights, savedLocation, activeReadingPlanId) {
+function buildItemList(menuItems, bookmarks, highlights, savedLocation, activeReadingPlanId, dailyDoneToday) {
   const list = [];
   for (const m of menuItems) {
     if (m.id === 'continue') {
@@ -146,7 +157,9 @@ function buildItemList(menuItems, bookmarks, highlights, savedLocation, activeRe
       list.push({ ...m, disabled: false, sub, action: 'continue' });
 
     } else if (m.id === 'dailyReading') {
-      const sub = activeReadingPlanId ? "Today's reading" : 'Choose a plan';
+      const sub = !activeReadingPlanId ? 'Choose a plan'
+        : dailyDoneToday ? 'Completed today ✓'
+        : "Today's reading";
       list.push({ ...m, disabled: false, sub, action: 'dailyReading' });
 
     } else if (m.id === 'bookmarks') {

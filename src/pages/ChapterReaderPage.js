@@ -8,6 +8,7 @@ import {
   deleteHighlighter, getHighlighters, saveHighlighter, removeHighlightForVerses,
 } from '../db/db';
 import CrossReferenceModal from '../components/CrossReferenceModal';
+import { saveSessionPosition, completeDay } from '../data/dailyReadingSession';
 
 // Modes
 const MODE_READING    = 'reading';
@@ -43,12 +44,16 @@ function highlightTint(hex, alpha = 0.2) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
-export default function ChapterReaderPage({ book, chapter, initialVerse = 1, bookmarkReadOnly = false }) {
+// `daily` (optional) puts the reader in guided daily-reading mode:
+//   { planId, day, chapters: [{ book, chapter, testament }], index, fresh }
+// Chapter navigation is limited to `chapters`; moving past the last one marks
+// the day complete and returns to the main menu.
+export default function ChapterReaderPage({ book, chapter, initialVerse = 1, bookmarkReadOnly = false, daily = null }) {
   const {
-    push, pop, popToRoot,
+    push, pop, popToRoot, replace,
     bookmarkSessionActive, activateBookmarkSession,
     registerKeyHandlers, registerSoftkeys,
-    settings, updateSettings,
+    settings, updateSettings, showToast,
   } = useApp();
 
   const [verses, setVerses]             = useState([]);
@@ -114,6 +119,10 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
   // ── Load chapter ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
+    // The reader instance is reused when navigating chapters, so stop the
+    // save-location effect below (same commit, runs after this one) from
+    // pairing the new book/chapter with the previous chapter's verse.
+    isActiveReadingRef.current = false;
     setLoading(true);
     setError(null);
 
@@ -144,9 +153,10 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
         // On remount (returning from Interlinear, cross-ref, etc.), restore to the
         // savedLocation verse so the reader snaps back to exactly where the user was.
         // On a fresh navigation to a new chapter, use initialVerse.
+        // A fresh daily-reading chapter always starts at the top.
         const savedLoc = settings.savedLocation;
         const restoreVerse =
-          (savedLoc?.book === book && savedLoc?.chapter === chapter)
+          (!daily?.fresh && savedLoc?.book === book && savedLoc?.chapter === chapter)
             ? savedLoc.verse   // returning to same chapter — snap back to saved position
             : initialVerse;    // fresh navigation — use the requested verse
         const idx = data.verses.findIndex(v => v.verse === restoreVerse);
@@ -247,15 +257,58 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
     push('ChapterReaderPage', { book: newBook, chapter: newChapter, initialVerse: 1 });
   }, [push, updateSettings, bookmarkSessionActive, bookmarkReadOnly]);
 
+  // ── Daily reading: step within today's chapters, finish past the last ─────
+  // Remember the chapter being read so leaving and returning resumes here.
+  const dailyPlanId = daily?.planId;
+  const dailyDay    = daily?.day;
+  const dailyIndex  = daily ? daily.index : -1;
+  useEffect(() => {
+    if (!dailyPlanId) return;
+    saveSessionPosition(dailyPlanId, dailyDay, dailyIndex).catch(() => {});
+  }, [dailyPlanId, dailyDay, dailyIndex]);
+
+  const finishingRef = useRef(false);
+  const finishDaily = useCallback(async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    try { await completeDay(daily.planId, daily.day); } catch (_) {}
+    popToRoot();
+    showToast('Daily Reading Completed', { confetti: true });
+  }, [daily, popToRoot, showToast]);
+
+  const stepDaily = useCallback((dir) => {
+    const nextIdx = daily.index + dir;
+    if (nextIdx < 0) return;                       // already at today's first chapter
+    if (nextIdx >= daily.chapters.length) { finishDaily(); return; }
+    const target = daily.chapters[nextIdx];
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    setAudioState('idle');
+    updateSettings({ savedLocation: { book: target.book, chapter: target.chapter, verse: 1 } }).catch(() => {});
+    const cur = daily.chapters[daily.index];
+    if (dir > 0 && cur?.testament === 'OT' && target.testament === 'NT') {
+      const b = BOOK_BY_ID[target.book];
+      showToast(`New Testament · ${b ? b.name : target.book} ${target.chapter}`);
+    }
+    // replace (not push) keeps the stack at Menu > Daily Reading > Reader, so
+    // Back always returns to the day's overview.
+    replace('ChapterReaderPage', {
+      book: target.book, chapter: target.chapter, initialVerse: 1, bookmarkReadOnly: true,
+      daily: { ...daily, index: nextIdx, fresh: true },
+    });
+  }, [daily, finishDaily, updateSettings, showToast, replace]);
+
   const prevChapter = useCallback(() => {
+    if (daily) { stepDaily(-1); return; }
     const loc = prevLocation(book, chapter);
     if (loc) goToChapter(loc.book, loc.chapter);
-  }, [book, chapter, goToChapter]);
+  }, [book, chapter, goToChapter, daily, stepDaily]);
 
   const nextChapter = useCallback(() => {
+    if (daily) { stepDaily(1); return; }
     const loc = nextLocation(book, chapter);
     if (loc) goToChapter(loc.book, loc.chapter);
-  }, [book, chapter, goToChapter]);
+  }, [book, chapter, goToChapter, daily, stepDaily]);
 
   // ── Mode: READING key handlers ───────────────────────────────────────────
   const readingHandlers = useCallback(() => ({
@@ -285,6 +338,12 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
           return;
         }
       }
+      // Daily reading: Down on the last verse carries on to the next chapter
+      // (or finishes the day), so the reader never has to steer by hand.
+      if (daily && verses.length > 0 && focusedVerse >= verses.length - 1) {
+        nextChapter();
+        return;
+      }
       navDirRef.current = 1;
       isActiveReadingRef.current = true;
       setFocusedVerse(prev => Math.min(verses.length - 1, prev + 1));
@@ -311,7 +370,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
         if (target >= 0) { isActiveReadingRef.current = true; setFocusedVerse(target); }
       }, 1000);
     }])),
-  }), [verses, focusedVerse, prevChapter, nextChapter, pop, popToRoot, push, book]);
+  }), [verses, focusedVerse, prevChapter, nextChapter, pop, popToRoot, push, book, daily]);
 
   // ── Mode: SELECTING key handlers ─────────────────────────────────────────
   const selectingHandlers = useCallback(() => ({
@@ -473,7 +532,12 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
       registerSoftkeys({
         left:   { label: 'Menu', action: popToRoot },
         center: 'Select',
-        right:  { label: 'Chapters', action: () => push('ChapterSelectionPage', { book }) },
+        // Daily reading stays on today's chapters, so no free chapter picker.
+        right:  daily
+          ? (daily.index >= daily.chapters.length - 1
+              ? { label: 'Finish', action: nextChapter }
+              : { label: 'Next', action: nextChapter })
+          : { label: 'Chapters', action: () => push('ChapterSelectionPage', { book }) },
       });
     } else if (mode === MODE_SELECTING) {
       registerKeyHandlers(selectingHandlers());
@@ -500,7 +564,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
       }}, center: audioState === 'playing' ? 'Pause' : 'Play', right: '' });
     }
   }, [mode, loading, error, audioState, showCrossRef, readingHandlers, selectingHandlers, inspectingHandlers,
-      registerKeyHandlers, registerSoftkeys, pop, popToRoot, push, book]);
+      registerKeyHandlers, registerSoftkeys, pop, popToRoot, push, book, daily, nextChapter]);
 
   // ── Stable cross-ref callbacks (memoised so modal's handler effect doesn't
   //    re-run on every ChapterReaderPage render, avoiding stale-closure issues) ─
@@ -520,7 +584,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
   if (loading) {
     return (
       <div className="page">
-        <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} />
+        <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} daily={daily} />
         <div className="page-content"><div className="loading"><span className="spinner" />Loading…</div></div>
       </div>
     );
@@ -529,7 +593,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
   if (error) {
     return (
       <div className="page">
-        <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} />
+        <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} daily={daily} />
         <div className="page-content">
           <div className="empty-state">
             {error === 'offline'
@@ -544,7 +608,7 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
 
   return (
     <div className="page">
-      <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} />
+      <ReaderHeader bookName={bookName} chapter={chapter} badge={activeBookmark} prevChapter={prevChapter} nextChapter={nextChapter} daily={daily} />
 
       {/* Verses */}
       <div className="page-content reader-content" ref={contentRef}>
@@ -596,6 +660,19 @@ export default function ChapterReaderPage({ book, chapter, initialVerse = 1, boo
             </div>
           );
         })}
+        {daily && verses.length > 0 && (
+          <div
+            style={{
+              padding: '10px 8px 14px',
+              textAlign: 'center',
+              fontSize: 11,
+              color: focusedVerse >= verses.length - 1 ? 'var(--color-accent)' : 'var(--color-text-muted)',
+            }}
+            onClick={nextChapter}
+          >
+            {dailyNextHint(daily)}
+          </div>
+        )}
       </div>
 
       {/* Inspection action sheet */}
@@ -662,16 +739,30 @@ function BookmarkRibbon({ bookmark }) {
   );
 }
 
-function ReaderHeader({ bookName, chapter, badge, prevChapter, nextChapter }) {
+function dailyNextHint(daily) {
+  const next = daily.chapters[daily.index + 1];
+  if (!next) return '▼ Finish today’s reading';
+  const b = BOOK_BY_ID[next.book];
+  return `▼ Next: ${b ? b.name : next.book} ${next.chapter}`;
+}
+
+function ReaderHeader({ bookName, chapter, badge, prevChapter, nextChapter, daily }) {
+  const atFirst = daily && daily.index === 0;
   return (
     <div className="page-header" style={{ justifyContent: 'space-between' }}>
       <button
         onClick={prevChapter}
         style={{ background: 'none', border: 'none', color: 'var(--color-header-text)',
-          fontSize: 12, padding: '0 4px', cursor: 'default', opacity: 0.8 }}
+          fontSize: 12, padding: '0 4px', cursor: 'default', opacity: 0.8,
+          visibility: atFirst ? 'hidden' : 'visible' }}
       >◀</button>
       <span className="header-title" style={{ textAlign: 'center', flex: 1 }}>
         {bookName} {chapter}
+        {daily && (
+          <span style={{ fontSize: 10, opacity: 0.75, marginLeft: 6 }}>
+            {daily.index + 1}/{daily.chapters.length}
+          </span>
+        )}
       </span>
       {badge && (
         <span

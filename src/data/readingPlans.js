@@ -4,7 +4,9 @@
 //   - typical         : Genesis → Revelation, standard canonical book order
 //   - chrono          : Old + New Testament in approximate historical/chronological order
 //   - typicalCombined : an Old Testament reading AND a New Testament reading every day,
-//                        each track walked in canonical order
+//                        each track walked in canonical order. The OT is read once;
+//                        the NT (260 chapters, fewer than 365 days) is read twice so
+//                        every day has at least one NT chapter.
 //   - chronoCombined  : same as above, but each track walked in chronological order
 //
 //   - progress mode : advances only when the user marks a day's reading done —
@@ -106,8 +108,9 @@ function buildCombinedSchedule(listA, listB) {
 const SCHEDULES = {
   typical:         buildSequentialSchedule(CANON_ALL),
   chrono:          buildSequentialSchedule(CHRONO_ALL),
-  typicalCombined: buildCombinedSchedule(CANON_OT, CANON_NT),
-  chronoCombined:  buildCombinedSchedule(CHRONO_OT, CHRONO_NT),
+  // NT twice a year: read once it would leave ~105 days with no NT chapter.
+  typicalCombined: buildCombinedSchedule(CANON_OT, [...CANON_NT, ...CANON_NT]),
+  chronoCombined:  buildCombinedSchedule(CHRONO_OT, [...CHRONO_NT, ...CHRONO_NT]),
 };
 
 // ── Plan definitions (4 structures × 2 modes = 8 plans) ─────────────────────
@@ -129,17 +132,17 @@ export const PLANS = [
 
   { id: 'typicalCombined-progress', structure: 'typicalCombined', mode: 'progress',
     label: 'OT + NT Together — Canonical',
-    sublabel: 'An Old & New Testament reading daily, at your own pace' },
+    sublabel: 'OT once and NT twice a year, at your own pace' },
   { id: 'typicalCombined-date', structure: 'typicalCombined', mode: 'date',
     label: 'OT + NT Together — Canonical',
-    sublabel: "An Old & New Testament reading daily, by date" },
+    sublabel: "OT once and NT twice a year, by date" },
 
   { id: 'chronoCombined-progress', structure: 'chronoCombined', mode: 'progress',
     label: 'OT + NT Together — Chronological',
-    sublabel: 'Historical order, both testaments daily, at your own pace' },
+    sublabel: 'Historical order, OT once and NT twice, at your own pace' },
   { id: 'chronoCombined-date', structure: 'chronoCombined', mode: 'date',
     label: 'OT + NT Together — Chronological',
-    sublabel: "Historical order, both testaments daily, by date" },
+    sublabel: "Historical order, OT once and NT twice, by date" },
 ];
 
 export function getPlan(planId) {
