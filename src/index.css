@@ -464,6 +464,34 @@ input.search-input-display::placeholder {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Banner ad (KaiAds) ── */
+/* Collapsed until KaiAds reports the ad displayed, so a page without an ad
+   (no fill, offline, not KaiOS) loses no space. Height-collapsed rather than
+   display:none so the slot keeps its 240px width for KaiAds to measure. */
+.banner-ad {
+  flex-shrink: 0;
+  height: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  text-align: center;
+}
+.banner-ad.shown {
+  height: auto;
+  border-top: 1px solid var(--color-border);
+  padding: 2px 0 3px;
+}
+.banner-ad.focused { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.banner-ad-label {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  margin-bottom: 1px;
+}
+.banner-ad-slot {
+  margin: 0 auto;
+  overflow: hidden;
+}
+.banner-ad-slot:focus { outline: none; }
+
 /* ── Toast ── */
 .toast {
   position: fixed;

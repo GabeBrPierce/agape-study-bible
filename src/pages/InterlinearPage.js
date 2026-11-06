@@ -4,6 +4,7 @@ import { fetchInterlinear, fetchLexicon, strongsToLexKey, getOccurrences, fetchC
 import { BOOK_BY_ID } from '../data/books';
 import { parseLexiconDefinition } from '../utils/lexiconText';
 import WORD_STUDY_GUIDE from '../data/wordStudyGuide';
+import { useBannerAd, BannerAd } from '../ads/BannerAd';
 
 // Cap how many reference rows we render — some Hebrew particles occur 10k+ times
 // and a DOM that large is unsafe on low-memory KaiOS devices.
@@ -18,6 +19,9 @@ export default function InterlinearPage({ book, chapter, verse, verseText }) {
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
   const [focusIdx, setFocusIdx] = useState(0);
+
+  // Banner ad below the word list; requested once the word list is on screen.
+  const banner = useBannerAd('interlinear-banner', !loading && !error);
 
   // Lexicon panel state
   const [lexEntry,     setLexEntry]     = useState(null);
@@ -229,10 +233,23 @@ export default function InterlinearPage({ book, chapter, verse, verseText }) {
         center: refFocus >= 0 ? 'Jump' : '▲▼ Scroll',
         right:  { label: 'Guide', action: () => setShowGuide(true) },
       });
+    } else if (banner.focused) {
+      // Enter is handled by KaiAds itself (the focused ad container opens the ad).
+      registerKeyHandlers({
+        ArrowUp:   banner.blur,
+        Enter:     () => {},
+        Backspace: () => pop(),
+        ArrowLeft: () => pop(),
+      });
+      registerSoftkeys({ left: { label: 'Back', action: pop }, center: 'Open Ad', right: '' });
     } else {
       registerKeyHandlers({
         ArrowUp:   () => setFocusIdx(prev => Math.max(0, prev - 1)),
-        ArrowDown: () => setFocusIdx(prev => Math.min(words.length - 1, prev + 1)),
+        // Down on the last word moves focus onto the banner ad, if one is showing.
+        ArrowDown: () => {
+          if (focusIdx >= words.length - 1) { banner.focus(); return; }
+          setFocusIdx(prev => Math.min(words.length - 1, prev + 1));
+        },
         Enter:     () => openLexicon(words[focusIdx]),
         Backspace: () => pop(),
         ArrowLeft: () => pop(),
@@ -243,7 +260,7 @@ export default function InterlinearPage({ book, chapter, verse, verseText }) {
         right:  '',
       });
     }
-  }, [showLex, showGuide, words, focusIdx, refList, refFocus, jumpToRef, openLexicon, pop, registerKeyHandlers, registerSoftkeys]);
+  }, [showLex, showGuide, words, focusIdx, refList, refFocus, jumpToRef, openLexicon, pop, registerKeyHandlers, registerSoftkeys, banner]);
 
   const ref = `${bookName} ${chapter}:${verse}`;
 
@@ -353,6 +370,8 @@ export default function InterlinearPage({ book, chapter, verse, verseText }) {
           <div className="empty-state">No interlinear data for this verse</div>
         )}
       </div>
+
+      <BannerAd banner={banner} />
 
       {/* Lexicon panel */}
       {showLex && (

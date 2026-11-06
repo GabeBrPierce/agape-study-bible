@@ -4,6 +4,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import { initDB } from './db/db';
 import SoftkeyBar from './components/SoftkeyBar';
 import Toast from './components/Toast';
+import LaunchAd from './ads/LaunchAd';
 
 // Pages
 import MainMenu           from './pages/MainMenu';
@@ -78,6 +79,7 @@ function AppInner() {
       <PageComponent {...currentPage.props} />
       <SoftkeyBar />
       <Toast />
+      <LaunchAd />
     </div>
   );
 }

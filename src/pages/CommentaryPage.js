@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { fetchAvailableCommentaries, fetchCommentaryChapter } from '../api/bibleApi';
 import { BOOK_BY_ID } from '../data/books';
+import { useBannerAd, BannerAd } from '../ads/BannerAd';
 
 const DEFAULT_COMMENTARY = 'matthew-henry';
 
@@ -74,14 +75,31 @@ export default function CommentaryPage({ book, chapter, verseStart, verseEnd = v
     updateSettings({ commentaryId: commentaries[next].id }).catch(() => {});
   }, [commentaries, index, updateSettings]);
 
+  const banner = useBannerAd('commentary-banner');
+
   const scroll = useCallback((dir) => {
     const c = contentRef.current;
     if (!c) return;
+    // Down at the end of the text moves focus onto the banner ad.
+    if (dir > 0 && c.scrollTop + c.clientHeight >= c.scrollHeight - 2 && banner.focus()) return;
     const step = Math.max(40, c.clientHeight * 0.8);
     c.scrollTo({ top: Math.max(0, c.scrollTop + dir * step), behavior: 'smooth' });
-  }, []);
+  }, [banner]);
 
   useEffect(() => {
+    if (banner.focused) {
+      // Enter is handled by KaiAds itself (the focused ad container opens the ad).
+      registerKeyHandlers({
+        ArrowUp:    banner.blur,
+        ArrowLeft:  () => { banner.blur(); cycle(-1); },
+        ArrowRight: () => { banner.blur(); cycle(1); },
+        Enter:      () => {},
+        Backspace:  pop,
+        SoftLeft:   pop,
+      });
+      registerSoftkeys({ left: { label: 'Back', action: pop }, center: 'Open Ad', right: '' });
+      return;
+    }
     registerKeyHandlers({
       ArrowLeft:  () => cycle(-1),
       ArrowRight: () => cycle(1),
@@ -91,7 +109,7 @@ export default function CommentaryPage({ book, chapter, verseStart, verseEnd = v
       SoftLeft:   pop,
     });
     registerSoftkeys({ left: { label: 'Back', action: pop }, center: '', right: '' });
-  }, [cycle, scroll, pop, registerKeyHandlers, registerSoftkeys]);
+  }, [cycle, scroll, pop, registerKeyHandlers, registerSoftkeys, banner]);
 
   // Each section runs from its verse up to the verse before the next section.
   const sections = (data?.sections || []).map((s, i, all) => ({
@@ -167,6 +185,8 @@ export default function CommentaryPage({ book, chapter, verseStart, verseEnd = v
           </div>
         )}
       </div>
+
+      <BannerAd banner={banner} />
     </div>
   );
 }

@@ -100,9 +100,22 @@ export function AppProvider({ children }) {
   }, []);
   const dismissToast = useCallback(() => setToast(null), []);
 
+  // ── Fullscreen ad ────────────────────────────────────────────────────────────
+  // While KaiAds shows a fullscreen ad it owns the keys (SoftLeft closes,
+  // SoftRight opens); the page underneath must not react to them.
+  // Fail-safe: if KaiAds never reports the close, give the keys back anyway.
+  const adActiveRef = useRef(false);
+  const adActiveTimer = useRef(null);
+  const setAdActive = useCallback((active) => {
+    adActiveRef.current = !!active;
+    clearTimeout(adActiveTimer.current);
+    if (active) adActiveTimer.current = setTimeout(() => { adActiveRef.current = false; }, 90 * 1000);
+  }, []);
+
   // ── Global keydown ────────────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
+      if (adActiveRef.current) return;
       const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
 
       // On KaiOS, Backspace triggers browser back-navigation — prevent that,
@@ -178,6 +191,7 @@ export function AppProvider({ children }) {
     toast,
     showToast,
     dismissToast,
+    setAdActive,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
